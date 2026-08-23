@@ -39,12 +39,21 @@ export interface ClassificationResult {
 
 // ── API error ───────────────────────────────────────────────────────────────
 
-/** Error codes returned by /api/classify (architecture.md §3) */
-export type ApiErrorCode = 'VALIDATION_ERROR' | 'AI_ERROR' | 'UNKNOWN'
+/** Error codes returned by /api/classify (architecture.md §3, §8) */
+export type ApiErrorCode =
+  | 'VALIDATION_ERROR'
+  | 'INVALID_FILE_TYPE'
+  | 'FILE_TOO_LARGE'
+  | 'MISSING_IMAGE'
+  | 'INVALID_REQUEST'
+  | 'AI_ERROR'
+  | 'SERVER_ERROR'
+  | 'UNKNOWN'
 
 export interface ApiError {
   error: string
-  code: ApiErrorCode
+  message: string
+  code?: ApiErrorCode
 }
 
 // ── App state ───────────────────────────────────────────────────────────────

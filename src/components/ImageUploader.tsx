@@ -6,7 +6,6 @@ import ViewfinderFrame from './ViewfinderFrame'
 import ClassificationResultCard from './ClassificationResult'
 import ErrorState from './ErrorState'
 import type { ErrorCode } from './ErrorState'
-import { getMockClassification } from '@/lib/mock-classifier'
 import type {
   AppState,
   ClassificationResult,
@@ -58,8 +57,8 @@ function validateFile(file: File): ValidationError | null {
  *   SCAN      → PREVIEW   : user selects / captures a file (valid)
  *   PREVIEW   → SCAN      : user taps "Chọn lại"
  *   PREVIEW   → ANALYZING : user taps "Phân tích"
- *   ANALYZING → RESULT    : mock classifier resolves
- *   ANALYZING → ERROR     : mock classifier rejects / abort
+ *   ANALYZING → RESULT    : POST /api/classify resolves 200
+ *   ANALYZING → ERROR     : POST /api/classify returns error / network error
  *   RESULT    → SCAN      : user taps "Quét lại"
  *   ERROR     → SCAN      : user taps "Thử lại"
  *
@@ -72,11 +71,12 @@ function validateFile(file: File): ValidationError | null {
  * Image preview uses URL.createObjectURL — revoked on cleanup / reselect
  * to avoid memory leaks.
  *
- * AbortController architecture is in place for the future real API.
+ * AbortController cancels in-flight requests on reselect/rescan/unmount.
  */
 export default function ImageUploader() {
   const [appState, setAppState] = useState<AppState>('SCAN')
   const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [classificationResult, setClassificationResult] =
     useState<ClassificationResult | null>(null)
@@ -116,6 +116,7 @@ export default function ImageUploader() {
     }
     setValidationError(null)
     revokeUrl()
+    setSelectedFile(file)
     setImageUrl(URL.createObjectURL(file))
     setClassificationResult(null)
     setAppState('PREVIEW')
@@ -134,6 +135,7 @@ export default function ImageUploader() {
   function handleReselect() {
     abortControllerRef.current?.abort()
     revokeUrl()
+    setSelectedFile(null)
     setValidationError(null)
     setClassificationResult(null)
     setErrorCode('UNKNOWN')
@@ -141,6 +143,8 @@ export default function ImageUploader() {
   }
 
   async function handleAnalyze() {
+    if (!selectedFile) return
+
     // Immediately enter ANALYZING — do not wait
     setAppState('ANALYZING')
 
@@ -148,15 +152,45 @@ export default function ImageUploader() {
     abortControllerRef.current = controller
 
     try {
-      const result = await getMockClassification(controller.signal)
-      // Guard: if aborted between resolution and setState, do nothing
+      const formData = new FormData()
+      formData.append('image', selectedFile)
+
+      const response = await fetch('/api/classify', {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal,
+      })
+
+      // Guard against race conditions if aborted during fetch
       if (controller.signal.aborted) return
-      setClassificationResult(result)
-      setAppState('RESULT')
+
+      if (response.ok) {
+        const result: ClassificationResult = await response.json()
+        if (controller.signal.aborted) return
+        setClassificationResult(result)
+        setAppState('RESULT')
+      } else {
+        const errorData = await response.json().catch(() => null)
+        if (controller.signal.aborted) return
+        const code: ErrorCode = (errorData?.error ||
+          errorData?.code ||
+          'UNKNOWN') as ErrorCode
+        setErrorCode(code)
+        setAppState('ERROR')
+      }
     } catch (error: unknown) {
       // AbortError means the user cancelled — don't show error state
-      if (error instanceof DOMException && error.name === 'AbortError') return
-      setErrorCode('UNKNOWN')
+      if (
+        (error instanceof DOMException && error.name === 'AbortError') ||
+        controller.signal.aborted
+      ) {
+        return
+      }
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        setErrorCode('NETWORK')
+      } else {
+        setErrorCode('UNKNOWN')
+      }
       setAppState('ERROR')
     }
   }
@@ -164,6 +198,7 @@ export default function ImageUploader() {
   function handleRescan() {
     abortControllerRef.current?.abort()
     revokeUrl()
+    setSelectedFile(null)
     setValidationError(null)
     setClassificationResult(null)
     setErrorCode('UNKNOWN')
@@ -173,6 +208,7 @@ export default function ImageUploader() {
   function handleRetry() {
     abortControllerRef.current?.abort()
     revokeUrl()
+    setSelectedFile(null)
     setValidationError(null)
     setClassificationResult(null)
     setErrorCode('UNKNOWN')

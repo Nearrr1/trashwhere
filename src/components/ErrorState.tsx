@@ -3,11 +3,18 @@ import type { ApiErrorCode } from '@/types/classification'
 
 // ── Error message map ───────────────────────────────────────────────────
 
+// ── Error message map ───────────────────────────────────────────────────
+
 const ERROR_MESSAGES: Record<ApiErrorCode | 'NETWORK', string> = {
   AI_ERROR: 'Hệ thống AI đang gặp sự cố. Vui lòng thử lại sau.',
   VALIDATION_ERROR: 'Ảnh không hợp lệ. Thử chụp lại với ánh sáng tốt hơn.',
+  INVALID_FILE_TYPE: 'Định dạng không hỗ trợ. Vui lòng chọn ảnh JPG, PNG hoặc WebP.',
+  FILE_TOO_LARGE: 'Tệp quá lớn. Vui lòng chọn ảnh dưới 10 MB.',
+  MISSING_IMAGE: 'Chưa có ảnh nào được gửi lên. Vui lòng thử lại.',
+  INVALID_REQUEST: 'Yêu cầu không hợp lệ. Vui lòng thử lại.',
+  SERVER_ERROR: 'Đã xảy ra sự cố máy chủ. Vui lòng thử lại.',
   UNKNOWN: 'Đã xảy ra lỗi không mong đợi. Vui lòng thử lại.',
-  NETWORK: 'Kết nối quá chậm. Kiểm tra mạng và thử lại.',
+  NETWORK: 'Kết nối quá chậm hoặc mất mạng. Kiểm tra mạng và thử lại.',
 }
 
 // ── Types ───────────────────────────────────────────────────────────────
@@ -38,7 +45,7 @@ export default function ErrorState({
   code = 'UNKNOWN',
   onRetry,
 }: ErrorStateProps) {
-  const message = ERROR_MESSAGES[code]
+  const message = ERROR_MESSAGES[code] ?? ERROR_MESSAGES.UNKNOWN
 
   return (
     <div
