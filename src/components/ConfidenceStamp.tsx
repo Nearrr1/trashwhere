@@ -1,6 +1,8 @@
 interface ConfidenceStampProps {
   /** Confidence value 0–1 */
   confidence: number
+  /** When true, border becomes dashed and text uses amber — for low-confidence results */
+  lowConfidence?: boolean
 }
 
 /**
@@ -22,8 +24,16 @@ function getVerbalLabel(confidence: number): string {
  *  - Verbal: Source Serif 4 400 10px, amber, uppercase, letter-spacing
  *  - Entrance: scale(0.7) opacity(0) → scale(1) opacity(1), 300ms ease-spring
  *    Applied via .confidence-stamp CSS class (globals.css)
+ *
+ * Low-confidence variant (screen-spec §Screen 5):
+ *  - Border: dashed 2px amber (--dash pattern: 4px 4px)
+ *  - Text colour: amber
+ *  - Label below %: "Chưa chắc chắn"
  */
-export default function ConfidenceStamp({ confidence }: ConfidenceStampProps) {
+export default function ConfidenceStamp({
+  confidence,
+  lowConfidence = false,
+}: ConfidenceStampProps) {
   const pct = Math.round(confidence * 100)
   const verbal = getVerbalLabel(confidence)
 
@@ -34,7 +44,7 @@ export default function ConfidenceStamp({ confidence }: ConfidenceStampProps) {
         width: '72px',
         height: '72px',
         borderRadius: 'var(--radius-full)',
-        border: '2px solid var(--color-amber)',
+        border: `2px ${lowConfidence ? 'dashed' : 'solid'} var(--color-amber)`,
         background: 'transparent',
       }}
       aria-label={`Độ tự tin: ${pct}% — ${verbal}`}

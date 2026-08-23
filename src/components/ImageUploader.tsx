@@ -4,6 +4,8 @@ import { useRef, useState, useCallback, useEffect } from 'react'
 import { Camera, AlertTriangle } from 'lucide-react'
 import ViewfinderFrame from './ViewfinderFrame'
 import ClassificationResultCard from './ClassificationResult'
+import ErrorState from './ErrorState'
+import type { ErrorCode } from './ErrorState'
 import { getMockClassification } from '@/lib/mock-classifier'
 import type {
   AppState,
@@ -78,6 +80,7 @@ export default function ImageUploader() {
   const [validationError, setValidationError] = useState<string | null>(null)
   const [classificationResult, setClassificationResult] =
     useState<ClassificationResult | null>(null)
+  const [errorCode, setErrorCode] = useState<ErrorCode>('UNKNOWN')
 
   const cameraRef = useRef<HTMLInputElement>(null)
   const galleryRef = useRef<HTMLInputElement>(null)
@@ -133,6 +136,7 @@ export default function ImageUploader() {
     revokeUrl()
     setValidationError(null)
     setClassificationResult(null)
+    setErrorCode('UNKNOWN')
     setAppState('SCAN')
   }
 
@@ -152,6 +156,7 @@ export default function ImageUploader() {
     } catch (error: unknown) {
       // AbortError means the user cancelled — don't show error state
       if (error instanceof DOMException && error.name === 'AbortError') return
+      setErrorCode('UNKNOWN')
       setAppState('ERROR')
     }
   }
@@ -161,6 +166,7 @@ export default function ImageUploader() {
     revokeUrl()
     setValidationError(null)
     setClassificationResult(null)
+    setErrorCode('UNKNOWN')
     setAppState('SCAN')
   }
 
@@ -169,6 +175,7 @@ export default function ImageUploader() {
     revokeUrl()
     setValidationError(null)
     setClassificationResult(null)
+    setErrorCode('UNKNOWN')
     setAppState('SCAN')
   }
 
@@ -379,55 +386,7 @@ export default function ImageUploader() {
 
       {/* ── ERROR screen ───────────────────────────────────── */}
       {appState === 'ERROR' && (
-        <div
-          role="alert"
-          className="flex flex-col items-center text-center"
-          style={{ padding: '48px 20px' }}
-        >
-          <AlertTriangle
-            size={48}
-            strokeWidth={1}
-            aria-hidden="true"
-            style={{ color: 'var(--color-terra)', marginBottom: '20px' }}
-          />
-          <h1
-            className="text-ink"
-            style={{
-              fontFamily: 'var(--font-serif-display)',
-              fontSize: '22px',
-              fontWeight: 700,
-              marginBottom: '12px',
-            }}
-          >
-            Không thể phân tích ảnh
-          </h1>
-          <p
-            className="text-ink-secondary text-pretty"
-            style={{
-              fontFamily: 'var(--font-serif-body)',
-              fontSize: '15px',
-              maxWidth: '280px',
-              marginBottom: '32px',
-            }}
-          >
-            Đã xảy ra lỗi không mong đợi. Vui lòng thử lại.
-          </p>
-          <button
-            id="btn-retry"
-            type="button"
-            onClick={handleRetry}
-            className="w-full flex items-center justify-center gap-2 bg-forest hover:bg-forest-hover text-paper rounded-md transition-colors"
-            style={{
-              height: '56px',
-              fontFamily: 'var(--font-sans)',
-              fontSize: '15px',
-              fontWeight: 500,
-              transitionDuration: 'var(--duration-fast)',
-            }}
-          >
-            Thử lại
-          </button>
-        </div>
+        <ErrorState code={errorCode} onRetry={handleRetry} />
       )}
 
       {/* ── Hidden file inputs ─────────────────────────────── */}
