@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { classifyImage } from '@/lib/classifier'
+import { classifyImage, ClassifierError } from '@/lib/classifier'
 import type { ApiError, ClassificationResult } from '@/types/classification'
 
 /** Allowed MIME types for uploaded waste images */
@@ -142,14 +142,48 @@ export async function POST(
   try {
     const result = await classifyImage(imageEntry)
     return NextResponse.json<ClassificationResult>(result, { status: 200 })
-  } catch {
+  } catch (error: unknown) {
+    if (error instanceof ClassifierError) {
+      if (error.code === 'TIMEOUT') {
+        return NextResponse.json<ApiError>(
+          {
+            error: 'AI_ERROR',
+            message: 'Hệ thống AI phản hồi quá lâu. Vui lòng thử lại sau.',
+            code: 'AI_ERROR',
+          },
+          { status: 504 }
+        )
+      }
+
+      if (error.code === 'MISSING_API_KEY') {
+        return NextResponse.json<ApiError>(
+          {
+            error: 'SERVER_ERROR',
+            message: 'Dịch vụ AI chưa sẵn sàng hoặc gặp sự cố cấu hình.',
+            code: 'SERVER_ERROR',
+          },
+          { status: 500 }
+        )
+      }
+
+      return NextResponse.json<ApiError>(
+        {
+          error: 'AI_ERROR',
+          message: 'Hệ thống AI đang gặp sự cố. Vui lòng thử lại sau.',
+          code: 'AI_ERROR',
+        },
+        { status: 502 }
+      )
+    }
+
     return NextResponse.json<ApiError>(
       {
         error: 'SERVER_ERROR',
         message: 'Đã xảy ra sự cố trong quá trình phân tích ảnh.',
-        code: 'UNKNOWN',
+        code: 'SERVER_ERROR',
       },
       { status: 500 }
     )
   }
 }
+
