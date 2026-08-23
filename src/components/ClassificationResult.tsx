@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import type { ClassificationResult as ClassificationResultType } from '@/types/classification'
 import { getCategoryMeta, getCategoryZoneStyle } from '@/lib/waste-categories'
 import BotanicalCard from './BotanicalCard'
@@ -9,6 +10,7 @@ import ConfidenceStamp from './ConfidenceStamp'
 import ConfidenceWarning from './ConfidenceWarning'
 import SectionLabel from './SectionLabel'
 import DisposalCard from './DisposalCard'
+import EducationalDrawer from './EducationalDrawer'
 
 /** Confidence below this threshold triggers the uncertainty treatment. */
 const LOW_CONFIDENCE_THRESHOLD = 0.6
@@ -32,7 +34,7 @@ interface ClassificationResultProps {
  *     c. "TẠI SAO" explanation section
  *     d. Separator
  *     e. "CÁCH XỬ LÝ" disposal section
- *  3. "Đọc thêm về loại rác này" edu trigger
+ *  3. "Đọc thêm về loại rác này" edu trigger → opens EducationalDrawer
  *  4. "Quét lại" action button
  *
  * Low-confidence variant (screen-spec §Screen 5):
@@ -56,6 +58,8 @@ export default function ClassificationResult({
   const isLowConfidence = confidence < LOW_CONFIDENCE_THRESHOLD
   // Warning is shown initially for low-confidence, dismissed by "Xem kết quả này"
   const [warningDismissed, setWarningDismissed] = useState(false)
+  const [isEduDrawerOpen, setIsEduDrawerOpen] = useState(false)
+
   const showWarning = isLowConfidence && !warningDismissed
 
   return (
@@ -204,7 +208,8 @@ export default function ClassificationResult({
           <button
             id="btn-edu-open"
             type="button"
-            className="mt-4 flex items-center justify-center gap-1"
+            onClick={() => setIsEduDrawerOpen(true)}
+            className="mt-4 flex items-center justify-center gap-1.5"
             style={{
               fontFamily: 'var(--font-serif-body)',
               fontSize: '14px',
@@ -216,7 +221,8 @@ export default function ClassificationResult({
               width: '100%',
             }}
           >
-            Đọc thêm về loại rác này
+            <span>Đọc thêm về loại rác này</span>
+            <ChevronDown size={16} strokeWidth={1.5} aria-hidden="true" />
           </button>
 
           {/* Rescan button */}
@@ -242,6 +248,13 @@ export default function ClassificationResult({
           </button>
         </>
       )}
+
+      {/* ── Educational Drawer ───────────────────────────── */}
+      <EducationalDrawer
+        category={category}
+        isOpen={isEduDrawerOpen}
+        onClose={() => setIsEduDrawerOpen(false)}
+      />
     </div>
   )
 }
