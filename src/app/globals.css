@@ -1,26 +1,210 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  /* ── Fonts ───────────────────────────────────────────── */
+  --font-serif-display: var(--font-playfair);      /* headings */
+  --font-serif-body:    var(--font-source-serif);  /* body / labels */
+  --font-sans:          var(--font-geist-sans);    /* UI chrome only */
+  --font-mono:          var(--font-geist-mono);    /* confidence number */
+
+  /* ── Color — Neutrals ───────────────────────────────── */
+  --color-paper:        #f5f0e8;   /* page background */
+  --color-paper-card:   #ede8dc;   /* card / surface */
+  --color-paper-rule:   #c8bfaa;   /* hairline borders, dividers */
+  --color-paper-hover:  #e5dfd3;   /* hover state on cards */
+
+  --color-ink:          #1c1c1c;   /* primary text */
+  --color-ink-secondary:#5c5040;   /* secondary text, captions */
+  --color-ink-muted:    #9a8f7c;   /* placeholders, disabled */
+
+  /* ── Color — Brand ──────────────────────────────────── */
+  --color-forest:       #1a3a2a;   /* primary action, CTA background */
+  --color-forest-hover: #142e21;   /* CTA hover */
+  --color-amber:        #c17f3e;   /* confidence stamp, secondary accent */
+  --color-amber-light:  #f0e4d0;   /* low-confidence warning background */
+  --color-terra:        #c25b3f;   /* hazardous category, destructive */
+
+  /* ── Color — Waste Categories ───────────────────────── */
+  /* Applied as: left-border accent on result cards        */
+  /* and background tint of the category icon zone         */
+  --color-cat-recyclable:      #2e7d52;
+  --color-cat-recyclable-tint: #e4ede6;
+  --color-cat-organic:         #7a5c2e;
+  --color-cat-organic-tint:    #edeae0;
+  --color-cat-hazardous:       #c25b3f;
+  --color-cat-hazardous-tint:  #f0e4e0;
+  --color-cat-electronic:      #3a6078;
+  --color-cat-electronic-tint: #e0e8ed;
+  --color-cat-general:         #5c5040;
+  --color-cat-general-tint:    #eaeae8;
+  --color-cat-unknown:         #9a8f7c;
+  --color-cat-unknown-tint:    #f0ede4;
+
+  /* ── Spacing ─────────────────────────────────────────── */
+  /* Base unit: 4px */
+  --spacing-1:  4px;
+  --spacing-2:  8px;
+  --spacing-3:  12px;
+  --spacing-4:  16px;
+  --spacing-5:  20px;
+  --spacing-6:  24px;
+  --spacing-8:  32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+  --spacing-16: 64px;
+  --spacing-24: 96px;
+
+  /* ── Typography ─────────────────────────────────────── */
+  --text-xs:   11px;
+  --text-sm:   13px;
+  --text-base: 15px;
+  --text-md:   16px;
+  --text-lg:   18px;
+  --text-xl:   22px;
+  --text-2xl:  28px;
+  --text-3xl:  36px;
+
+  --leading-tight:   1.2;
+  --leading-snug:    1.35;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.75;
+
+  --tracking-wide:   0.05em;
+  --tracking-wider:  0.10em;
+  --tracking-widest: 0.15em;
+
+  /* ── Border Radius ──────────────────────────────────── */
+  --radius-none: 0px;
+  --radius-sm:   3px;
+  --radius-md:   4px;
+  --radius-lg:   8px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ────────────────────────────────────────── */
+  --shadow-card:    0 1px 3px rgba(28,20,12,0.06), 0 1px 2px rgba(28,20,12,0.08);
+  --shadow-raised:  0 4px 12px rgba(28,20,12,0.10), 0 2px 4px rgba(28,20,12,0.06);
+  --shadow-overlay: 0 8px 32px rgba(28,20,12,0.16), 0 2px 8px rgba(28,20,12,0.08);
+
+  /* ── Motion ─────────────────────────────────────────── */
+  --duration-instant: 80ms;
+  --duration-fast:    150ms;
+  --duration-normal:  250ms;
+  --duration-slow:    400ms;
+  --ease-out-expo:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out:      cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring:      cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ── Base styles ─────────────────────────────────────── */
+
+html {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-source-serif), Georgia, serif;
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Focus visible ───────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--color-forest);
+  outline-offset: 2px;
+}
+
+/* ── Reduced motion ─────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Keyframes ───────────────────────────────────────── */
+
+/* Result card entrance — opacity + translateY */
+@keyframes result-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Confidence stamp entrance — scale + opacity */
+@keyframes stamp-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Viewfinder corner mark loading pulse */
+@keyframes viewfinder-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+/* Educational drawer slide-up */
+@keyframes drawer-open {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+/* Page transition — opacity only, no slide */
+@keyframes page-enter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Utility classes ─────────────────────────────────── */
+
+/* Result card animation */
+.result-card {
+  animation: result-enter var(--duration-slow) var(--ease-out-expo) forwards;
+}
+
+/* Confidence stamp animation */
+.confidence-stamp {
+  animation: stamp-enter 300ms var(--ease-spring) forwards;
+}
+
+/* Viewfinder corner marks — staggered pulse */
+.viewfinder-corner-mark {
+  animation: viewfinder-pulse 1.5s ease-in-out infinite;
+}
+.viewfinder-corner-mark:nth-child(2) { animation-delay: 0.2s; }
+.viewfinder-corner-mark:nth-child(3) { animation-delay: 0.1s; }
+.viewfinder-corner-mark:nth-child(4) { animation-delay: 0.3s; }
+
+/* Drawer */
+.drawer {
+  animation: drawer-open 320ms var(--ease-out-expo) forwards;
+}
+
+/* Page transition */
+.page-enter {
+  animation: page-enter var(--duration-normal) var(--ease-out-expo) forwards;
+}
+
+/* Text wrapping for explanation paragraphs */
+.text-pretty {
+  text-wrap: pretty;
 }
