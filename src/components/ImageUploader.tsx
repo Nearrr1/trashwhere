@@ -3,12 +3,14 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { Camera, AlertTriangle } from 'lucide-react'
 import ViewfinderFrame from './ViewfinderFrame'
+import ClassificationResultCard from './ClassificationResult'
+import { getMockClassification } from '@/lib/mock-classifier'
+import type {
+  AppState,
+  ClassificationResult,
+} from '@/types/classification'
 
 // ── Types ──────────────────────────────────────────────────────────────
-
-/** The five app states defined in ux-flows.md §Flow 5. Only SCAN and PREVIEW are
- *  implemented in this phase. ANALYZING / RESULT / ERROR require /api/classify. */
-type AppState = 'SCAN' | 'PREVIEW'
 
 interface ValidationError {
   message: string
@@ -51,9 +53,13 @@ function validateFile(file: File): ValidationError | null {
  * ImageUploader — the core interactive component for the scan flow.
  *
  * State machine (ux-flows.md §Flow 5):
- *   SCAN    → PREVIEW : user selects / captures a file (valid)
- *   PREVIEW → SCAN    : user taps "Chọn lại"
- *   PREVIEW → ANALYZING (future): user taps "Phân tích"
+ *   SCAN      → PREVIEW   : user selects / captures a file (valid)
+ *   PREVIEW   → SCAN      : user taps "Chọn lại"
+ *   PREVIEW   → ANALYZING : user taps "Phân tích"
+ *   ANALYZING → RESULT    : mock classifier resolves
+ *   ANALYZING → ERROR     : mock classifier rejects / abort
+ *   RESULT    → SCAN      : user taps "Quét lại"
+ *   ERROR     → SCAN      : user taps "Thử lại"
  *
  * File input pattern (ux-flows.md §Interaction Details):
  *   Two hidden <input type="file"> elements:
@@ -63,16 +69,22 @@ function validateFile(file: File): ValidationError | null {
  *
  * Image preview uses URL.createObjectURL — revoked on cleanup / reselect
  * to avoid memory leaks.
+ *
+ * AbortController architecture is in place for the future real API.
  */
 export default function ImageUploader() {
   const [appState, setAppState] = useState<AppState>('SCAN')
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
+  const [classificationResult, setClassificationResult] =
+    useState<ClassificationResult | null>(null)
 
   const cameraRef = useRef<HTMLInputElement>(null)
   const galleryRef = useRef<HTMLInputElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
-  // Revoke the current object URL if one exists
+  // ── Object URL lifecycle ───────────────────────────────────────────
+
   const revokeUrl = useCallback(() => {
     setImageUrl(prev => {
       if (prev) URL.revokeObjectURL(prev)
@@ -80,9 +92,10 @@ export default function ImageUploader() {
     })
   }, [])
 
-  // Revoke on unmount
+  // Revoke on unmount + abort any in-flight analysis
   useEffect(() => {
     return () => {
+      abortControllerRef.current?.abort()
       setImageUrl(prev => {
         if (prev) URL.revokeObjectURL(prev)
         return null
@@ -90,16 +103,18 @@ export default function ImageUploader() {
     }
   }, [])
 
+  // ── File handling ──────────────────────────────────────────────────
+
   function handleFileSelected(file: File) {
     const err = validateFile(file)
     if (err) {
       setValidationError(err.message)
-      // Do not transition; leave viewfinder in idle state
       return
     }
     setValidationError(null)
     revokeUrl()
     setImageUrl(URL.createObjectURL(file))
+    setClassificationResult(null)
     setAppState('PREVIEW')
   }
 
@@ -107,53 +122,113 @@ export default function ImageUploader() {
     const file = e.target.files?.[0]
     if (!file) return
     handleFileSelected(file)
-    // Reset so the same file can be re-selected if the user wants
+    // Reset so the same file can be re-selected
     e.target.value = ''
   }
 
+  // ── State transitions ─────────────────────────────────────────────
+
   function handleReselect() {
+    abortControllerRef.current?.abort()
     revokeUrl()
     setValidationError(null)
+    setClassificationResult(null)
     setAppState('SCAN')
   }
 
-  /**
-   * "Phân tích" — will POST to /api/classify in Phase 4.
-   * Intentionally a no-op for now (scan UI only).
-   */
-  function handleAnalyze() {
-    // Phase 4: POST /api/classify with FormData
-    // setAppState('ANALYZING')
+  async function handleAnalyze() {
+    // Immediately enter ANALYZING — do not wait
+    setAppState('ANALYZING')
+
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
+    try {
+      const result = await getMockClassification(controller.signal)
+      // Guard: if aborted between resolution and setState, do nothing
+      if (controller.signal.aborted) return
+      setClassificationResult(result)
+      setAppState('RESULT')
+    } catch (error: unknown) {
+      // AbortError means the user cancelled — don't show error state
+      if (error instanceof DOMException && error.name === 'AbortError') return
+      setAppState('ERROR')
+    }
   }
 
+  function handleRescan() {
+    abortControllerRef.current?.abort()
+    revokeUrl()
+    setValidationError(null)
+    setClassificationResult(null)
+    setAppState('SCAN')
+  }
+
+  function handleRetry() {
+    abortControllerRef.current?.abort()
+    revokeUrl()
+    setValidationError(null)
+    setClassificationResult(null)
+    setAppState('SCAN')
+  }
+
+  // ── Derived state ─────────────────────────────────────────────────
+
   const viewfinderState =
-    appState === 'PREVIEW' ? 'preview' : 'idle'
+    appState === 'ANALYZING'
+      ? 'loading'
+      : appState === 'PREVIEW'
+        ? 'preview'
+        : 'idle'
+
+  // ── Render ────────────────────────────────────────────────────────
 
   return (
     <section aria-label="Phân loại rác thải" className="flex flex-col">
-      {/* ── Viewfinder ──────────────────────────────── */}
-      {/*
-        No margin-top: viewfinder is flush to the top of the content
-        area (after the main's padding-top).
-      */}
-      <ViewfinderFrame state={viewfinderState} imageUrl={imageUrl ?? undefined} />
+      {/* ── Viewfinder (SCAN / PREVIEW / ANALYZING) ─────── */}
+      {(appState === 'SCAN' ||
+        appState === 'PREVIEW' ||
+        appState === 'ANALYZING') && (
+        <>
+          <ViewfinderFrame
+            state={viewfinderState}
+            imageUrl={imageUrl ?? undefined}
+          />
 
-      {/* ── Tagline (SCAN state only) ────────────────── */}
-      {appState === 'SCAN' && (
-        <p
-          className="text-center text-ink-secondary mt-4 text-pretty"
-          style={{
-            fontFamily: 'var(--font-serif-body)',
-            fontSize: '14px',
-            fontStyle: 'italic',
-            lineHeight: 'var(--leading-snug)',
-          }}
-        >
-          Mỗi vật đều có câu chuyện của nó.
-        </p>
+          {/* ── Tagline (SCAN state only) ────────────────── */}
+          {appState === 'SCAN' && (
+            <p
+              className="text-center text-ink-secondary mt-4 text-pretty"
+              style={{
+                fontFamily: 'var(--font-serif-body)',
+                fontSize: '14px',
+                fontStyle: 'italic',
+                lineHeight: 'var(--leading-snug)',
+              }}
+            >
+              Mỗi vật đều có câu chuyện của nó.
+            </p>
+          )}
+
+          {/* ── ANALYZING status text ────────────────────── */}
+          {appState === 'ANALYZING' && (
+            <p
+              aria-live="polite"
+              className="text-center text-ink-secondary mt-4"
+              style={{
+                fontFamily: 'var(--font-serif-body)',
+                fontSize: '15px',
+                fontStyle: 'italic',
+                lineHeight: 'var(--leading-snug)',
+              }}
+            >
+              Đang phân tích...
+            </p>
+          )}
+        </>
       )}
 
-      {/* ── Validation error (inline, below viewfinder) ─ */}
+      {/* ── Validation error (inline, below viewfinder) ─── */}
       {validationError && (
         <div
           role="alert"
@@ -184,10 +259,9 @@ export default function ImageUploader() {
         </div>
       )}
 
-      {/* ── SCAN actions ──────────────────────────────── */}
+      {/* ── SCAN actions ──────────────────────────────────── */}
       {appState === 'SCAN' && (
         <div className="mt-5 flex flex-col">
-          {/* Primary: camera capture */}
           <button
             id="btn-capture"
             type="button"
@@ -205,7 +279,6 @@ export default function ImageUploader() {
             Chụp ảnh
           </button>
 
-          {/* Secondary: gallery upload */}
           <button
             id="btn-upload"
             type="button"
@@ -215,7 +288,6 @@ export default function ImageUploader() {
               fontFamily: 'var(--font-serif-body)',
               fontSize: '13px',
               color: 'var(--color-forest)',
-              /* 44px touch area via min-height */
               minHeight: '44px',
               display: 'flex',
               alignItems: 'center',
@@ -231,10 +303,9 @@ export default function ImageUploader() {
         </div>
       )}
 
-      {/* ── PREVIEW actions ───────────────────────────── */}
+      {/* ── PREVIEW actions ────────────────────────────────── */}
       {appState === 'PREVIEW' && (
         <div className="mt-5 flex flex-col">
-          {/* Primary: analyze */}
           <button
             id="btn-analyze"
             type="button"
@@ -251,7 +322,6 @@ export default function ImageUploader() {
             Phân tích
           </button>
 
-          {/* Ghost: reselect */}
           <button
             id="btn-reselect"
             type="button"
@@ -276,14 +346,91 @@ export default function ImageUploader() {
         </div>
       )}
 
-      {/* ── Hidden file inputs ───────────────────────── */}
-      {/*
-        Two separate inputs:
-          1. capture="environment" → opens native camera on mobile
-          2. No capture → opens OS file picker (gallery / file system)
-        Both are visually hidden but reachable by programmatic .click().
-        tabIndex={-1} and aria-hidden prevent accidental keyboard/AT focus.
-      */}
+      {/* ── ANALYZING actions (disabled button) ────────────── */}
+      {appState === 'ANALYZING' && (
+        <div className="mt-5 flex flex-col">
+          <button
+            id="btn-analyze"
+            type="button"
+            disabled
+            className="w-full flex items-center justify-center gap-2 bg-forest text-paper rounded-md"
+            style={{
+              height: '56px',
+              fontFamily: 'var(--font-sans)',
+              fontSize: '15px',
+              fontWeight: 500,
+              opacity: 0.6,
+              cursor: 'not-allowed',
+            }}
+          >
+            Phân tích
+          </button>
+        </div>
+      )}
+
+      {/* ── RESULT screen ──────────────────────────────────── */}
+      {appState === 'RESULT' && classificationResult && imageUrl && (
+        <ClassificationResultCard
+          result={classificationResult}
+          imageUrl={imageUrl}
+          onRescan={handleRescan}
+        />
+      )}
+
+      {/* ── ERROR screen ───────────────────────────────────── */}
+      {appState === 'ERROR' && (
+        <div
+          role="alert"
+          className="flex flex-col items-center text-center"
+          style={{ padding: '48px 20px' }}
+        >
+          <AlertTriangle
+            size={48}
+            strokeWidth={1}
+            aria-hidden="true"
+            style={{ color: 'var(--color-terra)', marginBottom: '20px' }}
+          />
+          <h1
+            className="text-ink"
+            style={{
+              fontFamily: 'var(--font-serif-display)',
+              fontSize: '22px',
+              fontWeight: 700,
+              marginBottom: '12px',
+            }}
+          >
+            Không thể phân tích ảnh
+          </h1>
+          <p
+            className="text-ink-secondary text-pretty"
+            style={{
+              fontFamily: 'var(--font-serif-body)',
+              fontSize: '15px',
+              maxWidth: '280px',
+              marginBottom: '32px',
+            }}
+          >
+            Đã xảy ra lỗi không mong đợi. Vui lòng thử lại.
+          </p>
+          <button
+            id="btn-retry"
+            type="button"
+            onClick={handleRetry}
+            className="w-full flex items-center justify-center gap-2 bg-forest hover:bg-forest-hover text-paper rounded-md transition-colors"
+            style={{
+              height: '56px',
+              fontFamily: 'var(--font-sans)',
+              fontSize: '15px',
+              fontWeight: 500,
+              transitionDuration: 'var(--duration-fast)',
+            }}
+          >
+            Thử lại
+          </button>
+        </div>
+      )}
+
+      {/* ── Hidden file inputs ─────────────────────────────── */}
       <input
         ref={cameraRef}
         type="file"

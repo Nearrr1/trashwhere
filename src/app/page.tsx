@@ -32,19 +32,6 @@ export default function Home() {
         className="flex-1 flex flex-col px-5 pt-4"
         style={{ paddingBottom: '80px' }}
       >
-        {/*
-          aria-live region — updated by ImageUploader when analysis
-          starts / completes (Phase 4). Rendered here so it is always
-          in the DOM and assistive technologies register it early.
-        */}
-        <div
-          aria-live="polite"
-          aria-atomic="true"
-          aria-label="Trạng thái phân tích"
-          className="sr-only"
-          id="status-region"
-        />
-
         <ImageUploader />
       </main>
 

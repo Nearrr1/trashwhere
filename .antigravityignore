@@ -1,0 +1,60 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+build/
+.next/
+out/
+.turbo/
+.nx/cache/
+
+# NestJS specific
+dist/
+*.tsbuildinfo
+
+# React specific (CRA/Vite)
+.vite/
+coverage/
+
+# Lockfiles - AI không cần đọc, chỉ tốn token
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env & secrets - vừa tốn token vừa nguy hiểm nếu leak vào context
+.env
+.env.*
+!.env.example
+
+# Media & binary - AI không "đọc" được nội dung, chỉ tốn token base64/metadata
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.ico
+*.mp4
+*.woff
+*.woff2
+*.ttf
+
+# Test coverage / reports
+coverage/
+.nyc_output/
+
+# IDE / OS junk
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Generated files
+*.generated.ts
+swagger.json
