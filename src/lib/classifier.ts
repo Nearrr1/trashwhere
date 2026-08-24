@@ -1,7 +1,7 @@
 /**
  * Server-side classifier abstraction.
  *
- * This module connects TrashWhere to the OpenAI Vision API using structured JSON outputs.
+ * This module connects TrashWhere to Google Gemini API using structured JSON outputs.
  * It encapsulates prompt design, model invocation, structured schema enforcement,
  * response validation, and error classification.
  *
@@ -9,13 +9,13 @@
  * and keeps provider-specific logic isolated from the rest of the application.
  */
 
-import OpenAI from 'openai'
+import { GoogleGenAI, Type } from '@google/genai'
 import type { ClassificationResult, WasteCategory } from '@/types/classification'
 
 // ── Configuration ────────────────────────────────────────────────────────────
 
-const DEFAULT_MODEL = 'gpt-4o-mini'
-const TIMEOUT_MS = 20_000 // 20-second bounded timeout
+const DEFAULT_MODEL = 'gemini-3.5-flash'
+const TIMEOUT_MS = 45_000 // 45-second bounded timeout
 
 const VALID_CATEGORIES: ReadonlySet<WasteCategory> = new Set([
   'recyclable',
@@ -64,68 +64,30 @@ Nguyên tắc quan trọng:
 - Hướng dẫn xử lý (disposalAction): Đưa ra các bước xử lý cụ thể, thực tế tại Việt Nam (ví dụ: đổ sạch chất lỏng, tráng sạch, phân tách nắp chai, bỏ vào thùng rác tái chế màu vàng/hộp thu gom pin tại trường học).
 - TUYỆT ĐỐI KHÔNG bịa đặt tên cụ thể các trung tâm tái chế hoặc địa chỉ thu gom không có thực. Chỉ hướng dẫn quy trình xử lý chung, an toàn và đúng quy chuẩn tại trường học và gia đình.`
 
-const CLASSIFICATION_SCHEMA = {
-  type: 'object',
-  properties: {
-    category: {
-      type: 'string',
-      enum: [
-        'recyclable',
-        'organic',
-        'hazardous',
-        'electronic',
-        'general',
-        'unknown',
-      ],
-      description: 'Danh mục phân loại rác chuẩn trong hệ thống TrashWhere.',
-    },
-    confidence: {
-      type: 'number',
-      description:
-        'Điểm tự tin của mô hình từ 0.0 đến 1.0. Nếu không chắc chắn, đặt dưới 0.6.',
-    },
-    explanation: {
-      type: 'string',
-      description:
-        'Giải thích ngắn gọn bằng tiếng Việt dễ hiểu cho học sinh THPT.',
-    },
-    disposalAction: {
-      type: 'string',
-      description:
-        'Hướng dẫn hành động xử lý cụ thể và an toàn bằng tiếng Việt.',
-    },
-  },
-  required: ['category', 'confidence', 'explanation', 'disposalAction'],
-  additionalProperties: false,
-} as const
-
 // ── Classifier Function ──────────────────────────────────────────────────────
 
 /**
- * Classifies an uploaded waste image using OpenAI Vision API with structured output.
+ * Classifies an uploaded waste image using Google Gemini Vision API with structured output.
  *
  * @param file - The server-validated image File
  * @returns Promise resolving to a domain ClassificationResult
  * @throws {ClassifierError} when API key is missing, request times out, or provider fails
  */
 export async function classifyImage(file: File): Promise<ClassificationResult> {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey || apiKey.trim() === '') {
+  const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()
+  if (!apiKey) {
     throw new ClassifierError(
       'MISSING_API_KEY',
-      'OPENAI_API_KEY is not configured on the server.'
+      'GEMINI_API_KEY is not configured on the server.'
     )
   }
 
-  const model = process.env.OPENAI_MODEL?.trim() || DEFAULT_MODEL
-
-  // 1. Encode image to base64 data URL in memory (never written to disk)
-  let dataUrl: string
+  // 1. Encode image to base64 buffer in memory (never written to disk)
+  let base64Data: string
+  const mimeType = file.type || 'image/jpeg'
   try {
     const arrayBuffer = await file.arrayBuffer()
-    const base64 = Buffer.from(arrayBuffer).toString('base64')
-    const mimeType = file.type || 'image/jpeg'
-    dataUrl = `data:${mimeType};base64,${base64}`
+    base64Data = Buffer.from(arrayBuffer).toString('base64')
   } catch (err) {
     throw new ClassifierError(
       'INVALID_RESPONSE',
@@ -133,69 +95,132 @@ export async function classifyImage(file: File): Promise<ClassificationResult> {
     )
   }
 
-  // 2. Initialize OpenAI client with bounded timeout
-  const openai = new OpenAI({
-    apiKey,
-    timeout: TIMEOUT_MS,
-  })
+  // 2. Initialize GoogleGenAI client
+  const ai = new GoogleGenAI({ apiKey })
 
-  // 3. Request structured classification from OpenAI
-  let responseContent: string | null = null
-  try {
-    const completion = await openai.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: 'system',
-          content: SYSTEM_PROMPT,
-        },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'image_url',
-              image_url: {
-                url: dataUrl,
-                detail: 'auto',
+  // 3. Request structured classification with timeout protection
+  const primaryModel = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL
+  const candidateModels = Array.from(
+    new Set([
+      primaryModel,
+      'gemini-3.5-flash-lite',
+      'gemini-3.7-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-flash-latest',
+    ])
+  )
+
+  let responseText: string | null = null
+  let lastError: unknown = null
+
+  for (const model of candidateModels) {
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new ClassifierError('TIMEOUT', 'Classification request timed out.')),
+          TIMEOUT_MS
+        )
+      )
+
+      const apiCallPromise = ai.models.generateContent({
+        model,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                inlineData: {
+                  mimeType,
+                  data: base64Data,
+                },
+              },
+              {
+                text: 'Hãy phân tích hình ảnh này và phân loại rác thải.',
+              },
+            ],
+          },
+        ],
+        config: {
+          systemInstruction: SYSTEM_PROMPT,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              category: {
+                type: Type.STRING,
+                enum: [
+                  'recyclable',
+                  'organic',
+                  'hazardous',
+                  'electronic',
+                  'general',
+                  'unknown',
+                ],
+                description: 'Danh mục phân loại rác chuẩn trong hệ thống TrashWhere.',
+              },
+              confidence: {
+                type: Type.NUMBER,
+                description:
+                  'Điểm tự tin của mô hình từ 0.0 đến 1.0. Nếu không chắc chắn, đặt dưới 0.6.',
+              },
+              explanation: {
+                type: Type.STRING,
+                description:
+                  'Giải thích ngắn gọn bằng tiếng Việt dễ hiểu cho học sinh THPT.',
+              },
+              disposalAction: {
+                type: Type.STRING,
+                description:
+                  'Hướng dẫn hành động xử lý cụ thể và an toàn bằng tiếng Việt.',
               },
             },
-            {
-              type: 'text',
-              text: 'Hãy phân tích hình ảnh này và phân loại rác thải.',
-            },
-          ],
+            required: ['category', 'confidence', 'explanation', 'disposalAction'],
+          },
+          temperature: 0.2,
         },
-      ],
-      response_format: {
-        type: 'json_schema',
-        json_schema: {
-          name: 'waste_classification',
-          strict: true,
-          schema: CLASSIFICATION_SCHEMA,
-        },
-      },
-      temperature: 0.2,
-      max_tokens: 500,
-    })
+      })
 
-    responseContent = completion.choices[0]?.message?.content ?? null
-  } catch (error: unknown) {
-    if (error instanceof OpenAI.APIConnectionTimeoutError) {
-      throw new ClassifierError('TIMEOUT', 'OpenAI API request timed out.')
+      const response = await Promise.race([apiCallPromise, timeoutPromise])
+      responseText = response.text ?? null
+      if (responseText) break
+    } catch (error: unknown) {
+      lastError = error
+      const isQuotaError =
+        error instanceof Error &&
+        (error.message.includes('429') ||
+          error.message.includes('RESOURCE_EXHAUSTED') ||
+          error.message.includes('quota') ||
+          error.message.includes('Rate limit'))
+
+      if (isQuotaError && model !== candidateModels[candidateModels.length - 1]) {
+        // Try fallback model
+        continue
+      }
+
+      if (error instanceof ClassifierError) {
+        throw error
+      }
+      if (
+        error instanceof Error &&
+        (error.name === 'AbortError' || error.message.toLowerCase().includes('timeout'))
+      ) {
+        throw new ClassifierError('TIMEOUT', 'Classification request timed out.')
+      }
+      throw new ClassifierError(
+        'PROVIDER_ERROR',
+        `Gemini provider encountered an error: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
     }
-    if (
-      error instanceof Error &&
-      (error.name === 'AbortError' || error.message.includes('timeout'))
-    ) {
-      throw new ClassifierError('TIMEOUT', 'Classification request timed out.')
-    }
+  }
+
+  if (!responseText && lastError) {
     throw new ClassifierError(
       'PROVIDER_ERROR',
-      'OpenAI provider encountered an error.'
+      `All models exhausted: ${lastError instanceof Error ? lastError.message : 'Unknown error'}`
     )
   }
 
-  if (!responseContent) {
+  if (!responseText) {
     throw new ClassifierError(
       'INVALID_RESPONSE',
       'Model returned empty response content.'
@@ -205,7 +230,7 @@ export async function classifyImage(file: File): Promise<ClassificationResult> {
   // 4. Parse and validate structured output
   let parsed: unknown
   try {
-    parsed = JSON.parse(responseContent)
+    parsed = JSON.parse(responseText)
   } catch {
     throw new ClassifierError(
       'INVALID_RESPONSE',
