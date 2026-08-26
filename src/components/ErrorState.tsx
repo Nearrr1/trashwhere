@@ -13,6 +13,8 @@ const ERROR_MESSAGES: Record<ApiErrorCode | 'NETWORK', string> = {
   MISSING_IMAGE: 'Chưa có ảnh nào được gửi lên. Vui lòng thử lại.',
   INVALID_REQUEST: 'Yêu cầu không hợp lệ. Vui lòng thử lại.',
   SERVER_ERROR: 'Đã xảy ra sự cố máy chủ. Vui lòng thử lại.',
+  RATE_LIMITED: 'Bạn đã thực hiện quá nhiều yêu cầu. Vui lòng đợi một phút rồi thử lại.',
+  TOO_MANY_REQUESTS: 'Bạn đã thực hiện quá nhiều yêu cầu. Vui lòng đợi một phút rồi thử lại.',
   UNKNOWN: 'Đã xảy ra lỗi không mong đợi. Vui lòng thử lại.',
   NETWORK: 'Kết nối quá chậm hoặc mất mạng. Kiểm tra mạng và thử lại.',
 }

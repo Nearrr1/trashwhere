@@ -48,6 +48,8 @@ export type ApiErrorCode =
   | 'INVALID_REQUEST'
   | 'AI_ERROR'
   | 'SERVER_ERROR'
+  | 'RATE_LIMITED'
+  | 'TOO_MANY_REQUESTS'
   | 'UNKNOWN'
 
 export interface ApiError {
