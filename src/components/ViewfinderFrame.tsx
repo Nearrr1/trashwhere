@@ -3,12 +3,14 @@
 import { Camera } from 'lucide-react'
 
 /** Visual state passed down from ImageUploader */
-export type ViewfinderState = 'idle' | 'preview' | 'loading'
+export type ViewfinderState = 'idle' | 'camera' | 'preview' | 'loading'
 
 interface ViewfinderFrameProps {
   state: ViewfinderState
   /** blob: URL from URL.createObjectURL — only present in preview / loading states */
   imageUrl?: string
+  /** Ref to the HTML5 video element when camera is active */
+  videoRef?: React.RefObject<HTMLVideoElement | null>
 }
 
 /**
@@ -26,14 +28,10 @@ function CornerMark({
   corner: 'tl' | 'tr' | 'bl' | 'br'
   pulsing: boolean
 }) {
-  /**
-   * SVG paths — each is a two-segment L-shape drawn inside a 20×20 viewbox.
-   * Stroke-linecap "square" gives the field-guide bracket look.
-   */
   const paths: Record<typeof corner, string> = {
     tl: 'M 20,0 L 0,0 L 0,20',
     tr: 'M 0,0 L 20,0 L 20,20',
-    bl: 'M 0,20 L 0,0 L 20,0',   // flipped: goes up then right
+    bl: 'M 0,20 L 0,0 L 20,0',
     br: 'M 0,20 L 20,20 L 20,0',
   }
 
@@ -68,25 +66,44 @@ function CornerMark({
 /**
  * ViewfinderFrame — the rectangular camera viewfinder area.
  *
- * Spec (screen-spec §Screen 1 ViewfinderFrame):
- *  - aspect-ratio: 16/10, full content width, bg: paper-card
- *  - Corner marks at 12px from each edge, forest colour, 20px legs
- *  - SCAN: centred Camera icon at 40% forest opacity
- *  - PREVIEW: fills with the selected image (object-fit: cover)
- *  - LOADING: image at 85% opacity, corner marks pulse
+ * Supports:
+ *  - IDLE: Camera icon placeholder
+ *  - CAMERA: Live HTML5 <video> stream with object-fit: cover
+ *  - PREVIEW: Fills with captured/selected image (object-fit: cover)
+ *  - LOADING: Image at 85% opacity, pulsing corner marks
  */
-export default function ViewfinderFrame({ state, imageUrl }: ViewfinderFrameProps) {
+export default function ViewfinderFrame({
+  state,
+  imageUrl,
+  videoRef,
+}: ViewfinderFrameProps) {
   const showImage = (state === 'preview' || state === 'loading') && !!imageUrl
+  const showVideo = state === 'camera'
   const pulsing = state === 'loading'
 
   return (
     <div
-      className="relative w-full bg-paper-card overflow-hidden"
+      className="relative w-full bg-paper-card overflow-hidden rounded-sm"
       style={{ aspectRatio: '16 / 10' }}
-      aria-hidden={state === 'idle'}
+      aria-label={
+        showVideo
+          ? 'Khung ngắm camera trực tiếp'
+          : showImage
+            ? 'Ảnh đã chụp hoặc đã chọn'
+            : 'Khung ngắm camera'
+      }
     >
       {/* ── Content layer ─────────────────────────────── */}
-      {showImage ? (
+      {showVideo ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          aria-label="Luồng video từ camera"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+      ) : showImage ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={imageUrl}
@@ -95,7 +112,7 @@ export default function ViewfinderFrame({ state, imageUrl }: ViewfinderFrameProp
           style={{ opacity: pulsing ? 0.85 : 1 }}
         />
       ) : (
-        /* SCAN placeholder */
+        /* SCAN / IDLE placeholder */
         <div className="absolute inset-0 flex items-center justify-center">
           <Camera
             size={32}
@@ -103,6 +120,26 @@ export default function ViewfinderFrame({ state, imageUrl }: ViewfinderFrameProp
             aria-hidden="true"
             style={{ color: 'var(--color-forest)', opacity: 0.4 }}
           />
+        </div>
+      )}
+
+      {/* ── Subtle guide for active camera ────────────── */}
+      {showVideo && (
+        <div
+          className="absolute bottom-3 inset-x-0 flex justify-center pointer-events-none"
+          aria-hidden="true"
+        >
+          <span
+            className="px-2.5 py-1 rounded-full text-xs"
+            style={{
+              backgroundColor: 'rgba(24, 38, 28, 0.65)',
+              color: 'var(--color-paper)',
+              fontFamily: 'var(--font-sans)',
+              backdropFilter: 'blur(4px)',
+            }}
+          >
+            Đặt vật thể vào giữa khung
+          </span>
         </div>
       )}
 
