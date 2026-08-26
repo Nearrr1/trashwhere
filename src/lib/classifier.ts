@@ -66,6 +66,102 @@ Nguyên tắc quan trọng:
 
 // ── Classifier Function ──────────────────────────────────────────────────────
 
+// Maximum allowed characters for AI-generated text fields to prevent UI overflow
+const MAX_TEXT_FIELD_LENGTH = 1000
+
+/**
+ * Validates and normalizes structured output from AI model responses.
+ * Enforces JSON formatting, category membership, confidence score normalization,
+ * and text length bounds.
+ *
+ * @param jsonText - Raw string from model output
+ * @returns Validated ClassificationResult
+ * @throws {ClassifierError} on malformed JSON, invalid category, NaN confidence, or empty strings
+ */
+export function parseAndValidateClassificationOutput(
+  jsonText: string
+): ClassificationResult {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(jsonText)
+  } catch {
+    throw new ClassifierError(
+      'INVALID_RESPONSE',
+      'Model returned non-JSON content.'
+    )
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new ClassifierError(
+      'INVALID_RESPONSE',
+      'Parsed model output is not an object.'
+    )
+  }
+
+  const raw = parsed as Record<string, unknown>
+
+  // Validate category
+  if (
+    typeof raw.category !== 'string' ||
+    !VALID_CATEGORIES.has(raw.category as WasteCategory)
+  ) {
+    throw new ClassifierError(
+      'INVALID_RESPONSE',
+      `Model returned invalid category: ${String(raw.category)}`
+    )
+  }
+
+  // Validate & normalize confidence to [0, 1]
+  const rawConfidence = Number(raw.confidence)
+  if (Number.isNaN(rawConfidence)) {
+    throw new ClassifierError(
+      'INVALID_RESPONSE',
+      'Model returned NaN confidence score.'
+    )
+  }
+  const confidence = Math.max(
+    0,
+    Math.min(1, Math.round(rawConfidence * 100) / 100)
+  )
+
+  // Validate explanation
+  if (typeof raw.explanation !== 'string' || raw.explanation.trim() === '') {
+    throw new ClassifierError(
+      'INVALID_RESPONSE',
+      'Model returned invalid or empty explanation.'
+    )
+  }
+
+  // Validate disposalAction
+  if (
+    typeof raw.disposalAction !== 'string' ||
+    raw.disposalAction.trim() === ''
+  ) {
+    throw new ClassifierError(
+      'INVALID_RESPONSE',
+      'Model returned invalid or empty disposal action.'
+    )
+  }
+
+  let explanation = raw.explanation.trim()
+  if (explanation.length > MAX_TEXT_FIELD_LENGTH) {
+    explanation = explanation.slice(0, MAX_TEXT_FIELD_LENGTH).trimEnd() + '...'
+  }
+
+  let disposalAction = raw.disposalAction.trim()
+  if (disposalAction.length > MAX_TEXT_FIELD_LENGTH) {
+    disposalAction =
+      disposalAction.slice(0, MAX_TEXT_FIELD_LENGTH).trimEnd() + '...'
+  }
+
+  return {
+    category: raw.category as WasteCategory,
+    confidence,
+    explanation,
+    disposalAction,
+  }
+}
+
 /**
  * Classifies an uploaded waste image using Google Gemini Vision API with structured output.
  *
@@ -74,7 +170,8 @@ Nguyên tắc quan trọng:
  * @throws {ClassifierError} when API key is missing, request times out, or provider fails
  */
 export async function classifyImage(file: File): Promise<ClassificationResult> {
-  const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()
+  const apiKey =
+    process.env.GEMINI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()
   if (!apiKey) {
     throw new ClassifierError(
       'MISSING_API_KEY',
@@ -117,7 +214,10 @@ export async function classifyImage(file: File): Promise<ClassificationResult> {
     try {
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(
-          () => reject(new ClassifierError('TIMEOUT', 'Classification request timed out.')),
+          () =>
+            reject(
+              new ClassifierError('TIMEOUT', 'Classification request timed out.')
+            ),
           TIMEOUT_MS
         )
       )
@@ -156,7 +256,8 @@ export async function classifyImage(file: File): Promise<ClassificationResult> {
                   'general',
                   'unknown',
                 ],
-                description: 'Danh mục phân loại rác chuẩn trong hệ thống TrashWhere.',
+                description:
+                  'Danh mục phân loại rác chuẩn trong hệ thống TrashWhere.',
               },
               confidence: {
                 type: Type.NUMBER,
@@ -174,7 +275,12 @@ export async function classifyImage(file: File): Promise<ClassificationResult> {
                   'Hướng dẫn hành động xử lý cụ thể và an toàn bằng tiếng Việt.',
               },
             },
-            required: ['category', 'confidence', 'explanation', 'disposalAction'],
+            required: [
+              'category',
+              'confidence',
+              'explanation',
+              'disposalAction',
+            ],
           },
           temperature: 0.2,
         },
@@ -202,7 +308,8 @@ export async function classifyImage(file: File): Promise<ClassificationResult> {
       }
       if (
         error instanceof Error &&
-        (error.name === 'AbortError' || error.message.toLowerCase().includes('timeout'))
+        (error.name === 'AbortError' ||
+          error.message.toLowerCase().includes('timeout'))
       ) {
         throw new ClassifierError('TIMEOUT', 'Classification request timed out.')
       }
@@ -228,69 +335,5 @@ export async function classifyImage(file: File): Promise<ClassificationResult> {
   }
 
   // 4. Parse and validate structured output
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(responseText)
-  } catch {
-    throw new ClassifierError(
-      'INVALID_RESPONSE',
-      'Model returned non-JSON content.'
-    )
-  }
-
-  if (typeof parsed !== 'object' || parsed === null) {
-    throw new ClassifierError(
-      'INVALID_RESPONSE',
-      'Parsed model output is not an object.'
-    )
-  }
-
-  const raw = parsed as Record<string, unknown>
-
-  // Validate category
-  if (
-    typeof raw.category !== 'string' ||
-    !VALID_CATEGORIES.has(raw.category as WasteCategory)
-  ) {
-    throw new ClassifierError(
-      'INVALID_RESPONSE',
-      `Model returned invalid category: ${String(raw.category)}`
-    )
-  }
-
-  // Validate & normalize confidence to [0, 1]
-  const rawConfidence = Number(raw.confidence)
-  if (Number.isNaN(rawConfidence)) {
-    throw new ClassifierError(
-      'INVALID_RESPONSE',
-      'Model returned NaN confidence score.'
-    )
-  }
-  const confidence = Math.max(0, Math.min(1, Math.round(rawConfidence * 100) / 100))
-
-  // Validate explanation
-  if (typeof raw.explanation !== 'string' || raw.explanation.trim() === '') {
-    throw new ClassifierError(
-      'INVALID_RESPONSE',
-      'Model returned invalid or empty explanation.'
-    )
-  }
-
-  // Validate disposalAction
-  if (
-    typeof raw.disposalAction !== 'string' ||
-    raw.disposalAction.trim() === ''
-  ) {
-    throw new ClassifierError(
-      'INVALID_RESPONSE',
-      'Model returned invalid or empty disposal action.'
-    )
-  }
-
-  return {
-    category: raw.category as WasteCategory,
-    confidence,
-    explanation: raw.explanation.trim(),
-    disposalAction: raw.disposalAction.trim(),
-  }
+  return parseAndValidateClassificationOutput(responseText)
 }

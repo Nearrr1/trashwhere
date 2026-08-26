@@ -1,18 +1,22 @@
 import { NextResponse } from 'next/server'
 import { classifyImage, ClassifierError } from '@/lib/classifier'
+import { checkRateLimit, getClientIp } from '@/lib/rate-limiter'
 import type { ApiError, ClassificationResult } from '@/types/classification'
 
 /** Allowed MIME types for uploaded waste images */
-const ACCEPTED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp'])
+export const ACCEPTED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp'])
 
 /** 10 MB maximum file size limit */
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
+
+/** Maximum raw request body size allowed (including multipart boundaries) */
+const MAX_BODY_BYTES = 11 * 1024 * 1024
 
 /**
  * Validates the file header magic bytes to ensure file contents
  * match the declared image format (JPEG, PNG, WebP).
  */
-async function validateMagicBytes(file: File): Promise<boolean> {
+export async function validateMagicBytes(file: File): Promise<boolean> {
   try {
     const slice = file.slice(0, 12)
     const buffer = await slice.arrayBuffer()
@@ -60,12 +64,56 @@ async function validateMagicBytes(file: File): Promise<boolean> {
  * POST /api/classify
  *
  * Receives multipart/form-data with an "image" field.
- * Authoritatively validates file existence, size, MIME type, and magic bytes.
+ * Authoritatively validates rate limits, file existence, size, MIME type, and magic bytes.
  * Passes the image to the classifier abstraction and returns the ClassificationResult.
  */
 export async function POST(
   request: Request
 ): Promise<NextResponse<ClassificationResult | ApiError>> {
+  // 1. Rate Limiting Protection (per IP address)
+  const clientIp = getClientIp(request)
+  const rateLimit = checkRateLimit(clientIp)
+
+  if (!rateLimit.success) {
+    return NextResponse.json<ApiError>(
+      {
+        error: 'TOO_MANY_REQUESTS',
+        message:
+          'Bạn đã thực hiện quá nhiều yêu cầu. Vui lòng đợi một phút rồi thử lại.',
+        code: 'RATE_LIMITED',
+      },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': String(rateLimit.resetSeconds),
+          'X-RateLimit-Limit': String(rateLimit.limit),
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': String(rateLimit.resetSeconds),
+        },
+      }
+    )
+  }
+
+  // Common rate limit headers to attach to responses
+  const rateLimitHeaders = {
+    'X-RateLimit-Limit': String(rateLimit.limit),
+    'X-RateLimit-Remaining': String(rateLimit.remaining),
+    'X-RateLimit-Reset': String(rateLimit.resetSeconds),
+  }
+
+  // 2. Early Content-Length header inspection before reading body
+  const contentLength = request.headers.get('content-length')
+  if (contentLength && Number(contentLength) > MAX_BODY_BYTES) {
+    return NextResponse.json<ApiError>(
+      {
+        error: 'FILE_TOO_LARGE',
+        message: 'Kích thước tệp quá lớn. Vui lòng gửi ảnh dưới 10 MB.',
+        code: 'FILE_TOO_LARGE',
+      },
+      { status: 413, headers: rateLimitHeaders }
+    )
+  }
+
   let formData: FormData
   try {
     formData = await request.formData()
@@ -77,7 +125,7 @@ export async function POST(
           'Dữ liệu yêu cầu không hợp lệ. Vui lòng gửi dưới dạng multipart/form-data.',
         code: 'VALIDATION_ERROR',
       },
-      { status: 400 }
+      { status: 400, headers: rateLimitHeaders }
     )
   }
 
@@ -95,36 +143,36 @@ export async function POST(
         message: 'Không tìm thấy tệp ảnh hợp lệ trong yêu cầu.',
         code: 'VALIDATION_ERROR',
       },
-      { status: 400 }
+      { status: 400, headers: rateLimitHeaders }
     )
   }
 
-  // 1. File size check
+  // 3. File size check
   if (imageEntry.size > MAX_FILE_SIZE_BYTES) {
     return NextResponse.json<ApiError>(
       {
         error: 'FILE_TOO_LARGE',
         message: 'Kích thước tệp quá lớn. Vui lòng gửi ảnh dưới 10 MB.',
-        code: 'VALIDATION_ERROR',
+        code: 'FILE_TOO_LARGE',
       },
-      { status: 413 }
+      { status: 413, headers: rateLimitHeaders }
     )
   }
 
-  // 2. MIME type check
+  // 4. MIME type check
   if (!ACCEPTED_MIME.has(imageEntry.type)) {
     return NextResponse.json<ApiError>(
       {
         error: 'INVALID_FILE_TYPE',
         message:
           'Định dạng không hỗ trợ. Vui lòng chọn ảnh JPG, PNG hoặc WebP.',
-        code: 'VALIDATION_ERROR',
+        code: 'INVALID_FILE_TYPE',
       },
-      { status: 400 }
+      { status: 400, headers: rateLimitHeaders }
     )
   }
 
-  // 3. Magic bytes check
+  // 5. Magic bytes check
   const isMagicValid = await validateMagicBytes(imageEntry)
   if (!isMagicValid) {
     return NextResponse.json<ApiError>(
@@ -132,16 +180,19 @@ export async function POST(
         error: 'INVALID_FILE_TYPE',
         message:
           'Nội dung tệp không hợp lệ hoặc bị hỏng. Vui lòng chọn ảnh JPG, PNG hoặc WebP.',
-        code: 'VALIDATION_ERROR',
+        code: 'INVALID_FILE_TYPE',
       },
-      { status: 400 }
+      { status: 400, headers: rateLimitHeaders }
     )
   }
 
-  // 4. Server-side classifier execution
+  // 6. Server-side classifier execution
   try {
     const result = await classifyImage(imageEntry)
-    return NextResponse.json<ClassificationResult>(result, { status: 200 })
+    return NextResponse.json<ClassificationResult>(result, {
+      status: 200,
+      headers: rateLimitHeaders,
+    })
   } catch (error: unknown) {
     if (error instanceof ClassifierError) {
       if (error.code === 'TIMEOUT') {
@@ -151,7 +202,7 @@ export async function POST(
             message: 'Hệ thống AI phản hồi quá lâu. Vui lòng thử lại sau.',
             code: 'AI_ERROR',
           },
-          { status: 504 }
+          { status: 504, headers: rateLimitHeaders }
         )
       }
 
@@ -162,7 +213,7 @@ export async function POST(
             message: 'Dịch vụ AI chưa sẵn sàng hoặc gặp sự cố cấu hình.',
             code: 'SERVER_ERROR',
           },
-          { status: 500 }
+          { status: 500, headers: rateLimitHeaders }
         )
       }
 
@@ -172,7 +223,7 @@ export async function POST(
           message: 'Hệ thống AI đang gặp sự cố. Vui lòng thử lại sau.',
           code: 'AI_ERROR',
         },
-        { status: 502 }
+        { status: 502, headers: rateLimitHeaders }
       )
     }
 
@@ -182,7 +233,7 @@ export async function POST(
         message: 'Đã xảy ra sự cố trong quá trình phân tích ảnh.',
         code: 'SERVER_ERROR',
       },
-      { status: 500 }
+      { status: 500, headers: rateLimitHeaders }
     )
   }
 }
