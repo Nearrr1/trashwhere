@@ -21,7 +21,7 @@ import {
 
 // ── Types ──────────────────────────────────────────────────────────────
 
-interface ValidationError {
+export interface ValidationError {
   message: string
 }
 
@@ -41,11 +41,16 @@ const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
  * Client-side validation (UX-only).
  * Server-side validation (authoritative) will run in the route handler.
  */
-function validateFile(file: File): ValidationError | null {
+export function validateFile(file: File): ValidationError | null {
   if (!ACCEPTED_MIME.has(file.type)) {
     return {
       message:
         'Định dạng không hỗ trợ. Vui lòng chọn ảnh JPG, PNG hoặc WebP.',
+    }
+  }
+  if (file.size === 0) {
+    return {
+      message: 'Tệp rỗng hoặc không có dữ liệu. Vui lòng chọn ảnh hợp lệ.',
     }
   }
   if (file.size > MAX_BYTES) {
@@ -86,10 +91,13 @@ export default function ImageUploader() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const isAnalyzingRef = useRef<boolean>(false)
+  const cameraRequestIdRef = useRef<number>(0)
 
   // ── Camera Lifecycle ────────────────────────────────────────────────
 
   const stopActiveStream = useCallback(() => {
+    cameraRequestIdRef.current++
     if (streamRef.current) {
       stopCameraStream(streamRef.current)
       streamRef.current = null
@@ -101,6 +109,7 @@ export default function ImageUploader() {
 
   const startCamera = useCallback(
     async (facingMode: FacingMode = 'environment') => {
+      const requestId = ++cameraRequestIdRef.current
       stopActiveStream()
       setCameraError(null)
       setValidationError(null)
@@ -122,6 +131,11 @@ export default function ImageUploader() {
 
       try {
         const stream = await startCameraStream(facingMode)
+        // Guard against race condition: user closed or flipped camera while stream was starting
+        if (cameraRequestIdRef.current !== requestId) {
+          stopCameraStream(stream)
+          return
+        }
         streamRef.current = stream
         setCameraFacingMode(facingMode)
         setIsCameraActive(true)
@@ -132,6 +146,7 @@ export default function ImageUploader() {
           await videoRef.current.play().catch(() => {})
         }
       } catch (err: unknown) {
+        if (cameraRequestIdRef.current !== requestId) return
         stopActiveStream()
         setIsCameraActive(false)
         setCameraError(formatCameraError(err))
@@ -153,6 +168,7 @@ export default function ImageUploader() {
   // Stop camera and cleanup on unmount
   useEffect(() => {
     return () => {
+      isAnalyzingRef.current = false
       stopActiveStream()
       abortControllerRef.current?.abort()
     }
@@ -229,6 +245,7 @@ export default function ImageUploader() {
   // ── File handling ──────────────────────────────────────────────────
 
   function handleFileSelected(file: File) {
+    isAnalyzingRef.current = false
     stopActiveStream()
     setIsCameraActive(false)
     setCameraError(null)
@@ -257,7 +274,9 @@ export default function ImageUploader() {
   // ── State transitions ─────────────────────────────────────────────
 
   function handleReselect() {
+    isAnalyzingRef.current = false
     abortControllerRef.current?.abort()
+    if (galleryRef.current) galleryRef.current.value = ''
     revokeUrl()
     setSelectedFile(null)
     setValidationError(null)
@@ -267,7 +286,8 @@ export default function ImageUploader() {
   }
 
   async function handleAnalyze() {
-    if (!selectedFile) return
+    if (!selectedFile || isAnalyzingRef.current) return
+    isAnalyzingRef.current = true
 
     // Immediately enter ANALYZING — do not wait
     setAppState('ANALYZING')
@@ -296,8 +316,8 @@ export default function ImageUploader() {
       } else {
         const errorData = await response.json().catch(() => null)
         if (controller.signal.aborted) return
-        const code: ErrorCode = (errorData?.error ||
-          errorData?.code ||
+        const code: ErrorCode = (errorData?.code ||
+          errorData?.error ||
           'UNKNOWN') as ErrorCode
         setErrorCode(code)
         setAppState('ERROR')
@@ -316,11 +336,15 @@ export default function ImageUploader() {
         setErrorCode('UNKNOWN')
       }
       setAppState('ERROR')
+    } finally {
+      isAnalyzingRef.current = false
     }
   }
 
   function handleRescan() {
+    isAnalyzingRef.current = false
     abortControllerRef.current?.abort()
+    if (galleryRef.current) galleryRef.current.value = ''
     revokeUrl()
     setSelectedFile(null)
     setValidationError(null)
@@ -330,7 +354,9 @@ export default function ImageUploader() {
   }
 
   function handleRetry() {
+    isAnalyzingRef.current = false
     abortControllerRef.current?.abort()
+    if (galleryRef.current) galleryRef.current.value = ''
     revokeUrl()
     setSelectedFile(null)
     setValidationError(null)
