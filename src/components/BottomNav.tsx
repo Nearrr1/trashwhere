@@ -16,7 +16,7 @@ interface NavTab {
 
 const TABS: NavTab[] = [
   { id: 'nav-scan',    href: '/',       label: 'Quét',     Icon: Camera },
-  { id: 'nav-history', href: '/history', label: 'Lịch sử', Icon: Clock,    postMvp: true },
+  { id: 'nav-history', href: '/history', label: 'Lịch sử', Icon: Clock },
   { id: 'nav-learn',   href: '/learn',   label: 'Tìm hiểu', Icon: BookOpen },
 ]
 

@@ -74,6 +74,10 @@ export interface ClassificationResult {
    * Will be populated when the backend schema is extended in v2.2.
    */
   alternatives?: ClassificationAlternative[]
+  /**
+   * Optional structured disposal recommendation with actionable steps.
+   */
+  recommendation?: DisposalRecommendation
 }
 
 // ── API error ───────────────────────────────────────────────────────────────

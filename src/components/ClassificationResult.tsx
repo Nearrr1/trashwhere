@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { ClassificationResult as ClassificationResultType } from '@/types/classification'
 import { getCategoryMeta, getCategoryZoneStyle } from '@/lib/waste-categories'
@@ -11,6 +11,8 @@ import ConfidenceStamp from './ConfidenceStamp'
 import ConfidenceWarning from './ConfidenceWarning'
 import SectionLabel from './SectionLabel'
 import DisposalCard from './DisposalCard'
+import DisposalChecklist from './DisposalChecklist'
+import ClassificationFeedback from './ClassificationFeedback'
 import EducationalDrawer from './EducationalDrawer'
 
 
@@ -58,6 +60,51 @@ export default function ClassificationResult({
   // Warning is shown initially for low-confidence, dismissed by "Xem kết quả này"
   const [warningDismissed, setWarningDismissed] = useState(false)
   const [isEduDrawerOpen, setIsEduDrawerOpen] = useState(false)
+  const [savedScanId, setSavedScanId] = useState<string | null>(null)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'failed'>('idle')
+
+  // Asynchronously attempt to persist scan to cloud history if authenticated (non-blocking)
+  useEffect(() => {
+    let isMounted = true
+
+    async function autoSaveScan() {
+      try {
+        const res = await fetch('/api/history', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            category: result.category,
+            confidence: result.confidence,
+            explanation: result.explanation,
+            disposalAction: result.disposalAction,
+            recommendation: result.recommendation,
+          }),
+        })
+
+        if (!isMounted) return
+
+        if (res.ok) {
+          const data = await res.json()
+          if (data?.scan?._id) {
+            setSavedScanId(data.scan._id)
+            setSaveStatus('saved')
+          }
+        } else if (res.status === 401) {
+          // Anonymous user — expected and normal
+          setSaveStatus('idle')
+        } else {
+          setSaveStatus('failed')
+        }
+      } catch {
+        if (isMounted) setSaveStatus('failed')
+      }
+    }
+
+    autoSaveScan()
+    return () => {
+      isMounted = false
+    }
+  }, [result])
 
   const showWarning = isLowConf && !warningDismissed
 
@@ -150,8 +197,23 @@ export default function ClassificationResult({
             }}
           />
 
-          {/* Disposal section */}
+          {/* Disposal section with interactive checklist */}
           <DisposalCard disposalAction={disposalAction} />
+          <DisposalChecklist
+            instructions={result.recommendation?.instructions}
+            disposalAction={disposalAction}
+          />
+
+          {/* Classification Feedback */}
+          <ClassificationFeedback scanId={savedScanId || undefined} />
+
+          {/* Cloud save indicator */}
+          {saveStatus === 'saved' && (
+            <div className="mt-3 flex items-center gap-1.5 text-xs text-forest">
+              <span className="w-1.5 h-1.5 rounded-full bg-forest" aria-hidden="true" />
+              <span>Đã lưu vào lịch sử quét đám mây</span>
+            </div>
+          )}
         </div>
       </BotanicalCard>
 
