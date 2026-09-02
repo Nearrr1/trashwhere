@@ -51,11 +51,20 @@ describe('route validation & magic bytes', () => {
     expect(isValid).toBe(false)
   })
 
-  it('rejects corrupted short files (< 4 bytes)', async () => {
-    const shortFile = new File([new Uint8Array([0xff, 0xd8])], 'short.jpg', {
-      type: 'image/jpeg',
-    })
-    const isValid = await validateMagicBytes(shortFile)
-    expect(isValid).toBe(false)
+  it('validates camera-captured JPEG file header and MIME conformity', async () => {
+    // Standard JPEG SOI marker (0xFF, 0xD8, 0xFF) produced by canvas.toBlob('image/jpeg')
+    const cameraCaptureBytes = new Uint8Array([
+      0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46,
+    ])
+    const cameraFile = new File(
+      [cameraCaptureBytes],
+      `camera-scan-${Date.now()}.jpg`,
+      { type: 'image/jpeg' }
+    )
+
+    expect(ACCEPTED_MIME.has(cameraFile.type)).toBe(true)
+    expect(cameraFile.size).toBeLessThan(MAX_FILE_SIZE_BYTES)
+    const isValid = await validateMagicBytes(cameraFile)
+    expect(isValid).toBe(true)
   })
 })

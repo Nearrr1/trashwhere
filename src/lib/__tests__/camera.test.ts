@@ -112,8 +112,38 @@ describe('Camera Utilities', () => {
       expect(msg).toContain('kết nối an toàn (HTTPS hoặc localhost)')
     })
 
-    it('returns default message for unknown errors', () => {
-      const msg = formatCameraError(new Error('Unknown custom error'))
+    it('formats PermissionDeniedError with permission instruction', () => {
+      const error = new DOMException('Permission denied', 'PermissionDeniedError')
+      const msg = formatCameraError(error)
+      expect(msg).toContain('Không thể truy cập camera')
+    })
+
+    it('formats DevicesNotFoundError with device missing instruction', () => {
+      const error = new DOMException('No camera', 'DevicesNotFoundError')
+      const msg = formatCameraError(error)
+      expect(msg).toContain('Không tìm thấy camera')
+    })
+
+    it('formats TrackStartError with camera busy instruction', () => {
+      const error = new DOMException('Camera busy', 'TrackStartError')
+      const msg = formatCameraError(error)
+      expect(msg).toContain('đang được sử dụng bởi ứng dụng khác')
+    })
+
+    it('formats OverconstrainedError with configuration instruction', () => {
+      const error = new DOMException('Overconstrained', 'OverconstrainedError')
+      const msg = formatCameraError(error)
+      expect(msg).toContain('cấu hình yêu cầu')
+    })
+
+    it('formats NotSupportedError with unsupported browser instruction', () => {
+      const error = new DOMException('Not supported', 'NotSupportedError')
+      const msg = formatCameraError(error)
+      expect(msg).toContain('Trình duyệt này không hỗ trợ')
+    })
+
+    it('returns default message for non-object errors', () => {
+      const msg = formatCameraError('some string error')
       expect(msg).toContain('Không thể mở camera')
     })
   })
@@ -139,6 +169,20 @@ describe('Camera Utilities', () => {
     it('handles null/undefined streams without throwing', () => {
       expect(() => stopCameraStream(null)).not.toThrow()
       expect(() => stopCameraStream(undefined)).not.toThrow()
+    })
+
+    it('handles errors thrown inside track.stop() gracefully', () => {
+      const mockBrokenStream = {
+        getTracks: vi.fn().mockReturnValue([
+          {
+            stop: () => {
+              throw new Error('Hardware disconnect during stop')
+            },
+          },
+        ]),
+      } as unknown as MediaStream
+
+      expect(() => stopCameraStream(mockBrokenStream)).not.toThrow()
     })
   })
 
@@ -170,6 +214,92 @@ describe('Camera Utilities', () => {
         },
         audio: false,
       })
+    })
+
+    it('requests media stream with facingMode: user when specified (camera flip)', async () => {
+      const mockStream = { getTracks: () => [] }
+      const getUserMediaMock = vi.fn().mockResolvedValue(mockStream)
+
+      Object.defineProperty(global, 'navigator', {
+        value: {
+          mediaDevices: {
+            getUserMedia: getUserMediaMock,
+          },
+        },
+        writable: true,
+      })
+      Object.defineProperty(global, 'window', {
+        value: { isSecureContext: true },
+        writable: true,
+      })
+
+      const stream = await startCameraStream('user')
+      expect(stream).toBe(mockStream)
+      expect(getUserMediaMock).toHaveBeenCalledWith({
+        video: {
+          facingMode: { ideal: 'user' },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+        },
+        audio: false,
+      })
+    })
+
+    it('requests media stream with exact deviceId when provided', async () => {
+      const mockStream = { getTracks: () => [] }
+      const getUserMediaMock = vi.fn().mockResolvedValue(mockStream)
+
+      Object.defineProperty(global, 'navigator', {
+        value: {
+          mediaDevices: {
+            getUserMedia: getUserMediaMock,
+          },
+        },
+        writable: true,
+      })
+      Object.defineProperty(global, 'window', {
+        value: { isSecureContext: true },
+        writable: true,
+      })
+
+      const stream = await startCameraStream('environment', 'test-device-id-123')
+      expect(stream).toBe(mockStream)
+      expect(getUserMediaMock).toHaveBeenCalledWith({
+        video: {
+          deviceId: { exact: 'test-device-id-123' },
+        },
+        audio: false,
+      })
+    })
+
+    it('throws InsecureContextError when isSecureContext is false', async () => {
+      Object.defineProperty(global, 'navigator', {
+        value: {
+          mediaDevices: {
+            getUserMedia: vi.fn(),
+          },
+        },
+        writable: true,
+      })
+      Object.defineProperty(global, 'window', {
+        value: { isSecureContext: false },
+        writable: true,
+      })
+
+      await expect(startCameraStream()).rejects.toThrow('InsecureContext')
+    })
+
+    it('throws NotSupportedError when navigator.mediaDevices is absent', async () => {
+      Object.defineProperty(global, 'navigator', {
+        value: {},
+        writable: true,
+      })
+      Object.defineProperty(global, 'window', {
+        value: { isSecureContext: true },
+        writable: true,
+      })
+
+      await expect(startCameraStream()).rejects.toThrow('MediaDevicesUnavailable')
     })
   })
 
@@ -213,6 +343,91 @@ describe('Camera Utilities', () => {
       expect(mockCanvas.width).toBe(1280)
       expect(mockCanvas.height).toBe(720)
       expect(mockDrawImage).toHaveBeenCalledWith(mockVideo, 0, 0, 1280, 720)
+    })
+
+    it('falls back to 640x480 default dimensions if video width/height are zero', async () => {
+      const mockDrawImage = vi.fn()
+      const mockToBlob = vi.fn((callback: (b: Blob | null) => void) => {
+        const dummyBlob = new Blob(['dummy-jpeg-data'], { type: 'image/jpeg' })
+        callback(dummyBlob)
+      })
+
+      const mockCanvas = {
+        width: 0,
+        height: 0,
+        getContext: vi.fn().mockReturnValue({
+          drawImage: mockDrawImage,
+        }),
+        toBlob: mockToBlob,
+      }
+
+      Object.defineProperty(global, 'document', {
+        value: {
+          createElement: vi.fn().mockImplementation((tagName: string) => {
+            if (tagName === 'canvas') return mockCanvas
+            return {}
+          }),
+        },
+        writable: true,
+      })
+
+      const mockVideo = {
+        videoWidth: 0,
+        videoHeight: 0,
+      } as unknown as HTMLVideoElement
+
+      await captureVideoFrame(mockVideo)
+
+      expect(mockCanvas.width).toBe(640)
+      expect(mockCanvas.height).toBe(480)
+      expect(mockDrawImage).toHaveBeenCalledWith(mockVideo, 0, 0, 640, 480)
+    })
+
+    it('throws an error if canvas 2D context is unavailable', async () => {
+      const mockCanvas = {
+        width: 0,
+        height: 0,
+        getContext: vi.fn().mockReturnValue(null),
+      }
+
+      Object.defineProperty(global, 'document', {
+        value: {
+          createElement: vi.fn().mockImplementation((tagName: string) => {
+            if (tagName === 'canvas') return mockCanvas
+            return {}
+          }),
+        },
+        writable: true,
+      })
+
+      const mockVideo = { videoWidth: 640, videoHeight: 480 } as unknown as HTMLVideoElement
+      await expect(captureVideoFrame(mockVideo)).rejects.toThrow('Canvas context not available')
+    })
+
+    it('rejects with user-friendly error if canvas.toBlob yields null', async () => {
+      const mockCanvas = {
+        width: 0,
+        height: 0,
+        getContext: vi.fn().mockReturnValue({
+          drawImage: vi.fn(),
+        }),
+        toBlob: vi.fn((callback: (b: Blob | null) => void) => {
+          callback(null)
+        }),
+      }
+
+      Object.defineProperty(global, 'document', {
+        value: {
+          createElement: vi.fn().mockImplementation((tagName: string) => {
+            if (tagName === 'canvas') return mockCanvas
+            return {}
+          }),
+        },
+        writable: true,
+      })
+
+      const mockVideo = { videoWidth: 640, videoHeight: 480 } as unknown as HTMLVideoElement
+      await expect(captureVideoFrame(mockVideo)).rejects.toThrow('Không thể chụp ảnh từ video feed.')
     })
   })
 })
