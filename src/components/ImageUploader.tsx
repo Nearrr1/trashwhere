@@ -76,6 +76,7 @@ export function validateFile(file: File): ValidationError | null {
 export default function ImageUploader() {
   const [appState, setAppState] = useState<AppState>('SCAN')
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false)
+  const [isCameraRequesting, setIsCameraRequesting] = useState<boolean>(false)
   const [cameraFacingMode, setCameraFacingMode] = useState<FacingMode>('environment')
   const [isCapturing, setIsCapturing] = useState<boolean>(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
@@ -113,6 +114,7 @@ export default function ImageUploader() {
       const requestId = ++cameraRequestIdRef.current
       setCameraError(null)
       setValidationError(null)
+      setIsCameraRequesting(true)
 
       const support = isCameraSupported()
       if (!support.supported) {
@@ -126,6 +128,7 @@ export default function ImageUploader() {
           )
         }
         setIsCameraActive(false)
+        setIsCameraRequesting(false)
         return
       }
 
@@ -134,11 +137,13 @@ export default function ImageUploader() {
         // Guard against race condition: user closed or flipped camera while stream was starting
         if (cameraRequestIdRef.current !== requestId) {
           stopCameraStream(stream)
+          setIsCameraRequesting(false)
           return
         }
         streamRef.current = stream
         setCameraFacingMode(facingMode)
         setIsCameraActive(true)
+        setIsCameraRequesting(false)
 
         // Ensure video element receives the stream once mounted
         if (videoRef.current) {
@@ -150,9 +155,13 @@ export default function ImageUploader() {
           }
         }
       } catch (err: unknown) {
-        if (cameraRequestIdRef.current !== requestId) return
+        if (cameraRequestIdRef.current !== requestId) {
+          setIsCameraRequesting(false)
+          return
+        }
         stopActiveStream()
         setIsCameraActive(false)
+        setIsCameraRequesting(false)
         setCameraError(formatCameraError(err))
       }
     },
@@ -243,6 +252,7 @@ export default function ImageUploader() {
   function handleCloseCamera() {
     stopActiveStream()
     setIsCameraActive(false)
+    setIsCameraRequesting(false)
     setCameraError(null)
   }
 
@@ -378,7 +388,9 @@ export default function ImageUploader() {
         ? 'preview'
         : isCameraActive
           ? 'camera'
-          : 'idle'
+          : isCameraRequesting
+            ? 'requesting'
+            : 'idle'
 
   // ── Render ────────────────────────────────────────────────────────
 
@@ -570,6 +582,8 @@ export default function ImageUploader() {
                 id="btn-open-camera"
                 type="button"
                 onClick={() => startCamera('environment')}
+                disabled={isCameraRequesting}
+                aria-label="Quét bằng camera"
                 className="w-full flex items-center justify-center gap-2 bg-forest hover:bg-forest-hover text-paper rounded-md transition-colors"
                 style={{
                   height: '56px',
@@ -577,6 +591,8 @@ export default function ImageUploader() {
                   fontSize: '15px',
                   fontWeight: 500,
                   transitionDuration: 'var(--duration-fast)',
+                  opacity: isCameraRequesting ? 0.6 : 1,
+                  cursor: isCameraRequesting ? 'not-allowed' : 'pointer',
                 }}
               >
                 <Camera size={18} strokeWidth={1.5} aria-hidden="true" />

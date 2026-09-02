@@ -3,7 +3,7 @@
 import { Camera } from 'lucide-react'
 
 /** Visual state passed down from ImageUploader */
-export type ViewfinderState = 'idle' | 'camera' | 'preview' | 'loading'
+export type ViewfinderState = 'idle' | 'requesting' | 'camera' | 'preview' | 'loading'
 
 interface ViewfinderFrameProps {
   state: ViewfinderState
@@ -64,10 +64,58 @@ function CornerMark({
 }
 
 /**
+ * Shown when camera permission is being requested (getUserMedia pending).
+ * Uses a CSS-animated ring so no JS timer is needed.
+ */
+function RequestingPlaceholder() {
+  return (
+    <div
+      className="absolute inset-0 flex flex-col items-center justify-center gap-3"
+      aria-label="Đang mở camera, vui lòng chờ"
+    >
+      {/* Animated ring spinner */}
+      <svg
+        width="36"
+        height="36"
+        viewBox="0 0 36 36"
+        fill="none"
+        aria-hidden="true"
+        style={{ animation: 'spin 1s linear infinite' }}
+      >
+        <circle
+          cx="18"
+          cy="18"
+          r="15"
+          stroke="var(--color-paper-rule)"
+          strokeWidth="3"
+        />
+        <path
+          d="M 18 3 A 15 15 0 0 1 33 18"
+          stroke="var(--color-forest)"
+          strokeWidth="3"
+          strokeLinecap="round"
+        />
+      </svg>
+      <span
+        style={{
+          fontFamily: 'var(--font-sans)',
+          fontSize: '13px',
+          color: 'var(--color-ink-secondary)',
+          letterSpacing: '0.02em',
+        }}
+      >
+        Đang mở camera...
+      </span>
+    </div>
+  )
+}
+
+/**
  * ViewfinderFrame — the rectangular camera viewfinder area.
  *
  * Supports:
  *  - IDLE: Camera icon placeholder
+ *  - REQUESTING: Spinner while getUserMedia is pending (Phase 10)
  *  - CAMERA: Live HTML5 <video> stream with object-fit: cover
  *  - PREVIEW: Fills with captured/selected image (object-fit: cover)
  *  - LOADING: Image at 85% opacity, pulsing corner marks
@@ -90,7 +138,9 @@ export default function ViewfinderFrame({
           ? 'Khung ngắm camera trực tiếp'
           : showImage
             ? 'Ảnh đã chụp hoặc đã chọn'
-            : 'Khung ngắm camera'
+            : state === 'requesting'
+              ? 'Đang mở camera'
+              : 'Khung ngắm camera'
       }
     >
       {/* ── Content layer ─────────────────────────────── */}
@@ -111,6 +161,9 @@ export default function ViewfinderFrame({
           className="absolute inset-0 w-full h-full object-cover"
           style={{ opacity: pulsing ? 0.85 : 1 }}
         />
+      ) : state === 'requesting' ? (
+        /* REQUESTING — getUserMedia pending */
+        <RequestingPlaceholder />
       ) : (
         /* SCAN / IDLE placeholder */
         <div className="absolute inset-0 flex items-center justify-center">

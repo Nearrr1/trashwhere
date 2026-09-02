@@ -1,8 +1,9 @@
 /**
- * Camera utilities for TrashWhere (Phase 7A).
+ * Camera utilities for TrashWhere (Phase 7A / Phase 10).
  *
  * Provides browser capability detection, media stream acquisition/release,
- * canvas-based frame capture to JPEG, and localized user-friendly error formatting.
+ * canvas-based frame capture to JPEG, client-side image resize/compression,
+ * and localized user-friendly error formatting.
  */
 
 export interface CameraSupportStatus {
@@ -86,15 +87,77 @@ export function stopCameraStream(
 }
 
 /**
- * Captures a single frame from an HTMLVideoElement and exports it as a JPEG File.
+ * Scales a canvas proportionally so neither dimension exceeds `maxDimension`.
+ * If both dimensions are already within the limit the canvas is returned unchanged.
  *
- * @param video HTMLVideoElement containing the active video stream
- * @param quality JPEG compression quality (0 to 1, default 0.9)
+ * @param sourceCanvas - Canvas containing the raw captured frame
+ * @param maxDimension - Maximum width or height in pixels (default 1920)
+ * @param quality      - JPEG quality 0–1 (default 0.92)
+ * @returns Promise<Blob> — JPEG-encoded image at the appropriate size
+ */
+export async function resizeAndCompressFrame(
+  sourceCanvas: HTMLCanvasElement,
+  maxDimension = 1920,
+  quality = 0.92
+): Promise<Blob> {
+  const { width, height } = sourceCanvas
+
+  let targetWidth = width
+  let targetHeight = height
+
+  // Scale down proportionally if necessary
+  if (width > maxDimension || height > maxDimension) {
+    if (width >= height) {
+      targetWidth = maxDimension
+      targetHeight = Math.round((height / width) * maxDimension)
+    } else {
+      targetHeight = maxDimension
+      targetWidth = Math.round((width / height) * maxDimension)
+    }
+  }
+
+  // If no resize needed, encode directly from the source canvas
+  const outputCanvas =
+    targetWidth === width && targetHeight === height
+      ? sourceCanvas
+      : (() => {
+          const c = document.createElement('canvas')
+          c.width = targetWidth
+          c.height = targetHeight
+          const ctx = c.getContext('2d')
+          if (!ctx) throw new Error('Canvas context not available for resize')
+          ctx.drawImage(sourceCanvas, 0, 0, targetWidth, targetHeight)
+          return c
+        })()
+
+  return new Promise<Blob>((resolve, reject) => {
+    outputCanvas.toBlob(
+      blob => {
+        if (!blob) {
+          reject(new Error('Không thể nén ảnh đã chụp.'))
+          return
+        }
+        resolve(blob)
+      },
+      'image/jpeg',
+      quality
+    )
+  })
+}
+
+/**
+ * Captures a single frame from an HTMLVideoElement, applies proportional
+ * resize if the resolution exceeds `maxDimension`, and exports a JPEG File.
+ *
+ * @param video        - HTMLVideoElement with an active video stream
+ * @param quality      - JPEG compression quality (0–1, default 0.92)
+ * @param maxDimension - Maximum width or height after resize (default 1920)
  * @returns Promise<File> with MIME type 'image/jpeg'
  */
 export async function captureVideoFrame(
   video: HTMLVideoElement,
-  quality = 0.9
+  quality = 0.92,
+  maxDimension = 1920
 ): Promise<File> {
   const width = video.videoWidth || 640
   const height = video.videoHeight || 480
@@ -110,22 +173,11 @@ export async function captureVideoFrame(
 
   ctx.drawImage(video, 0, 0, width, height)
 
-  return new Promise<File>((resolve, reject) => {
-    canvas.toBlob(
-      blob => {
-        if (!blob) {
-          reject(new Error('Không thể chụp ảnh từ video feed.'))
-          return
-        }
-        const file = new File([blob], `camera-scan-${Date.now()}.jpg`, {
-          type: 'image/jpeg',
-          lastModified: Date.now(),
-        })
-        resolve(file)
-      },
-      'image/jpeg',
-      quality
-    )
+  const blob = await resizeAndCompressFrame(canvas, maxDimension, quality)
+
+  return new File([blob], `camera-scan-${Date.now()}.jpg`, {
+    type: 'image/jpeg',
+    lastModified: Date.now(),
   })
 }
 

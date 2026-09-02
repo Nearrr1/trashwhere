@@ -427,7 +427,8 @@ describe('Camera Utilities', () => {
       })
 
       const mockVideo = { videoWidth: 640, videoHeight: 480 } as unknown as HTMLVideoElement
-      await expect(captureVideoFrame(mockVideo)).rejects.toThrow('Không thể chụp ảnh từ video feed.')
+      // resizeAndCompressFrame is called internally; null blob surfaces via its own message
+      await expect(captureVideoFrame(mockVideo)).rejects.toThrow('Không thể nén ảnh đã chụp.')
     })
   })
 })
