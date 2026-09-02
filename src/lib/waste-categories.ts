@@ -112,7 +112,7 @@ export const WASTE_CATEGORIES: readonly CategoryMeta[] = [
         'Rác điện tử chứa cả kim loại quý giá và các chất chống cháy độc hại. Việc đốt hoặc tháo dỡ thủ công ngoài trời phát tán khí dioxin và khói độc vào bầu không khí xung quanh.',
       keyFact: {
         prefix: '1 triệu điện thoại cũ tái chế có thể thu hồi tới ',
-        highlight: '35.000 kg',
+        highlight: '16.000 kg',
         suffix: ' đồng và 350 kg bạc.',
       },
       disposalDetail:
