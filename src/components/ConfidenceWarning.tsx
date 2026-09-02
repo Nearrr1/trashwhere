@@ -1,10 +1,22 @@
 import { HelpCircle } from 'lucide-react'
 
+interface ConfidenceWarningProps {
+  /**
+   * The raw confidence score (0–1) from the classification result.
+   * Displayed as a percentage to give the user concrete context about
+   * why the result is uncertain. Phase 11 addition.
+   */
+  confidence: number
+}
+
 /**
- * ConfidenceWarning — uncertainty banner shown when confidence < 0.6.
+ * ConfidenceWarning — uncertainty banner shown when confidence < LOW_CONFIDENCE_THRESHOLD.
  *
  * This is NOT an error. It communicates that the result is uncertain
  * while still showing the classification.
+ *
+ * Phase 11: now accepts a `confidence` prop to surface the actual score
+ * in the banner text, making the warning contextually meaningful.
  *
  * Spec (screen-spec §Screen 5 — Uncertainty Banner):
  *  - Background: amber-light (#f0e4d0)
@@ -16,7 +28,9 @@ import { HelpCircle } from 'lucide-react'
  *  - Body: Source Serif 4 400, 13px, ink-secondary
  *  - ARIA: role="status" (informational, not critical)
  */
-export default function ConfidenceWarning() {
+export default function ConfidenceWarning({ confidence }: ConfidenceWarningProps) {
+  const pct = Math.round(Math.max(0, Math.min(1, confidence)) * 100)
+
   return (
     <div
       role="status"
@@ -56,8 +70,11 @@ export default function ConfidenceWarning() {
             lineHeight: 'var(--leading-normal)',
           }}
         >
-          Độ chính xác thấp — thử chụp lại với ánh sáng tốt hơn hoặc góc nhìn
-          khác.
+          Độ chính xác{' '}
+          <strong style={{ color: 'var(--color-amber)', fontWeight: 600 }}>
+            {pct}%
+          </strong>{' '}
+          — thử chụp lại với ánh sáng tốt hơn hoặc góc nhìn khác.
         </p>
       </div>
     </div>

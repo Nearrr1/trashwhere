@@ -1,18 +1,10 @@
+import { getConfidenceLabel, getConfidenceLevel } from '@/lib/confidence'
+
 interface ConfidenceStampProps {
   /** Confidence value 0–1 */
   confidence: number
   /** When true, border becomes dashed and text uses amber — for low-confidence results */
   lowConfidence?: boolean
-}
-
-/**
- * Returns the Vietnamese verbal label for a given confidence score.
- * screen-spec §Verbal confidence labels.
- */
-function getVerbalLabel(confidence: number): string {
-  if (confidence >= 0.85) return 'Rất tự tin'
-  if (confidence >= 0.60) return 'Khá tự tin'
-  return 'Chưa chắc chắn'
 }
 
 /**
@@ -29,13 +21,16 @@ function getVerbalLabel(confidence: number): string {
  *  - Border: dashed 2px amber (--dash pattern: 4px 4px)
  *  - Text colour: amber
  *  - Label below %: "Chưa chắc chắn"
+ *
+ * Confidence thresholds are defined in src/lib/confidence.ts (Phase 11).
  */
 export default function ConfidenceStamp({
   confidence,
   lowConfidence = false,
 }: ConfidenceStampProps) {
   const pct = Math.round(confidence * 100)
-  const verbal = getVerbalLabel(confidence)
+  const level = getConfidenceLevel(confidence)
+  const verbal = getConfidenceLabel(level)
 
   return (
     <div

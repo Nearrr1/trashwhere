@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { ClassificationResult as ClassificationResultType } from '@/types/classification'
 import { getCategoryMeta, getCategoryZoneStyle } from '@/lib/waste-categories'
+import { isLowConfidence } from '@/lib/confidence'
 import BotanicalCard from './BotanicalCard'
 import CategoryIcon from './CategoryIcon'
 import ConfidenceStamp from './ConfidenceStamp'
@@ -12,8 +13,6 @@ import SectionLabel from './SectionLabel'
 import DisposalCard from './DisposalCard'
 import EducationalDrawer from './EducationalDrawer'
 
-/** Confidence below this threshold triggers the uncertainty treatment. */
-const LOW_CONFIDENCE_THRESHOLD = 0.6
 
 interface ClassificationResultProps {
   result: ClassificationResultType
@@ -55,12 +54,12 @@ export default function ClassificationResult({
   const meta = getCategoryMeta(category)
   const zoneStyle = getCategoryZoneStyle(category)
 
-  const isLowConfidence = confidence < LOW_CONFIDENCE_THRESHOLD
+  const isLowConf = isLowConfidence(confidence)
   // Warning is shown initially for low-confidence, dismissed by "Xem kết quả này"
   const [warningDismissed, setWarningDismissed] = useState(false)
   const [isEduDrawerOpen, setIsEduDrawerOpen] = useState(false)
 
-  const showWarning = isLowConfidence && !warningDismissed
+  const showWarning = isLowConf && !warningDismissed
 
   return (
     <div className="result-card flex flex-col" aria-live="polite" aria-atomic="true">
@@ -78,7 +77,7 @@ export default function ClassificationResult({
       />
 
       {/* ── Low-confidence warning banner ────────────────── */}
-      {showWarning && <ConfidenceWarning />}
+      {showWarning && <ConfidenceWarning confidence={confidence} />}
 
       {/* ── Result card ─────────────────────────────────── */}
       <BotanicalCard className="mt-4">
