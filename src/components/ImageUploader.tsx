@@ -109,8 +109,8 @@ export default function ImageUploader() {
 
   const startCamera = useCallback(
     async (facingMode: FacingMode = 'environment') => {
-      const requestId = ++cameraRequestIdRef.current
       stopActiveStream()
+      const requestId = ++cameraRequestIdRef.current
       setCameraError(null)
       setValidationError(null)
 
@@ -143,7 +143,11 @@ export default function ImageUploader() {
         // Ensure video element receives the stream once mounted
         if (videoRef.current) {
           videoRef.current.srcObject = stream
-          await videoRef.current.play().catch(() => {})
+          try {
+            await videoRef.current.play()
+          } catch {
+            // Autoplay or element-unmounted error ignored
+          }
         }
       } catch (err: unknown) {
         if (cameraRequestIdRef.current !== requestId) return
