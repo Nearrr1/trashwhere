@@ -42,6 +42,11 @@ const MAX_BYTES = 10 * 1024 * 1024 // 10 MB
  * Server-side validation (authoritative) will run in the route handler.
  */
 export function validateFile(file: File): ValidationError | null {
+  if (!file) {
+    return {
+      message: 'Không tìm thấy tệp ảnh. Vui lòng chọn ảnh hợp lệ.',
+    }
+  }
   if (!ACCEPTED_MIME.has(file.type)) {
     return {
       message:
@@ -80,6 +85,7 @@ export default function ImageUploader() {
   const [cameraFacingMode, setCameraFacingMode] = useState<FacingMode>('environment')
   const [isCapturing, setIsCapturing] = useState<boolean>(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [analysisStage, setAnalysisStage] = useState<'normal' | 'delayed'>('normal')
 
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -94,6 +100,22 @@ export default function ImageUploader() {
   const abortControllerRef = useRef<AbortController | null>(null)
   const isAnalyzingRef = useRef<boolean>(false)
   const cameraRequestIdRef = useRef<number>(0)
+  const analysisRequestIdRef = useRef<number>(0)
+  const analysisStageTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const clientTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // ── Analysis Timers Lifecycle ───────────────────────────────────────
+
+  const clearAnalysisTimers = useCallback(() => {
+    if (analysisStageTimeoutRef.current) {
+      clearTimeout(analysisStageTimeoutRef.current)
+      analysisStageTimeoutRef.current = null
+    }
+    if (clientTimeoutRef.current) {
+      clearTimeout(clientTimeoutRef.current)
+      clientTimeoutRef.current = null
+    }
+  }, [])
 
   // ── Camera Lifecycle ────────────────────────────────────────────────
 
@@ -104,6 +126,10 @@ export default function ImageUploader() {
       streamRef.current = null
     }
     if (videoRef.current) {
+      const srcObj = videoRef.current.srcObject as MediaStream | null
+      if (srcObj && typeof srcObj.getTracks === 'function') {
+        stopCameraStream(srcObj)
+      }
       videoRef.current.srcObject = null
     }
   }, [])
@@ -178,14 +204,20 @@ export default function ImageUploader() {
     }
   }, [isCameraActive])
 
+  const cancelOngoingAnalysis = useCallback(() => {
+    isAnalyzingRef.current = false
+    analysisRequestIdRef.current++
+    clearAnalysisTimers()
+    abortControllerRef.current?.abort()
+  }, [clearAnalysisTimers])
+
   // Stop camera and cleanup on unmount
   useEffect(() => {
     return () => {
-      isAnalyzingRef.current = false
+      cancelOngoingAnalysis()
       stopActiveStream()
-      abortControllerRef.current?.abort()
     }
-  }, [stopActiveStream])
+  }, [stopActiveStream, cancelOngoingAnalysis])
 
   // ── Object URL lifecycle ───────────────────────────────────────────
 
@@ -218,6 +250,8 @@ export default function ImageUploader() {
       // Stop camera stream immediately upon successful capture
       stopActiveStream()
       setIsCameraActive(false)
+      analysisRequestIdRef.current++
+      clearAnalysisTimers()
 
       const err = validateFile(file)
       if (err) {
@@ -260,6 +294,8 @@ export default function ImageUploader() {
 
   function handleFileSelected(file: File) {
     isAnalyzingRef.current = false
+    analysisRequestIdRef.current++
+    clearAnalysisTimers()
     stopActiveStream()
     setIsCameraActive(false)
     setCameraError(null)
@@ -288,8 +324,7 @@ export default function ImageUploader() {
   // ── State transitions ─────────────────────────────────────────────
 
   function handleReselect() {
-    isAnalyzingRef.current = false
-    abortControllerRef.current?.abort()
+    cancelOngoingAnalysis()
     if (galleryRef.current) galleryRef.current.value = ''
     revokeUrl()
     setSelectedFile(null)
@@ -299,15 +334,39 @@ export default function ImageUploader() {
     setAppState('SCAN')
   }
 
-  async function handleAnalyze() {
+  const handleAnalyze = useCallback(async () => {
     if (!selectedFile || isAnalyzingRef.current) return
     isAnalyzingRef.current = true
+
+    const requestId = ++analysisRequestIdRef.current
+    clearAnalysisTimers()
+    setAnalysisStage('normal')
+    setValidationError(null)
+    setCameraError(null)
 
     // Immediately enter ANALYZING — do not wait
     setAppState('ANALYZING')
 
     const controller = new AbortController()
     abortControllerRef.current = controller
+
+    // Stage 2: After 7 seconds, transition text to "taking longer than expected"
+    analysisStageTimeoutRef.current = setTimeout(() => {
+      if (analysisRequestIdRef.current === requestId) {
+        setAnalysisStage('delayed')
+      }
+    }, 7000)
+
+    // Stage 3: Client-side safety timeout after 50s (backend limit is 45s)
+    clientTimeoutRef.current = setTimeout(() => {
+      if (analysisRequestIdRef.current === requestId) {
+        controller.abort()
+        clearAnalysisTimers()
+        isAnalyzingRef.current = false
+        setErrorCode('NETWORK')
+        setAppState('ERROR')
+      }
+    }, 50000)
 
     try {
       const formData = new FormData()
@@ -319,17 +378,25 @@ export default function ImageUploader() {
         signal: controller.signal,
       })
 
-      // Guard against race conditions if aborted during fetch
-      if (controller.signal.aborted) return
+      // Guard against race conditions / stale requests
+      if (analysisRequestIdRef.current !== requestId || controller.signal.aborted) {
+        return
+      }
 
       if (response.ok) {
         const result: ClassificationResult = await response.json()
-        if (controller.signal.aborted) return
+        if (analysisRequestIdRef.current !== requestId || controller.signal.aborted) {
+          return
+        }
+        clearAnalysisTimers()
         setClassificationResult(result)
         setAppState('RESULT')
       } else {
         const errorData = await response.json().catch(() => null)
-        if (controller.signal.aborted) return
+        if (analysisRequestIdRef.current !== requestId || controller.signal.aborted) {
+          return
+        }
+        clearAnalysisTimers()
         const code: ErrorCode = (errorData?.code ||
           errorData?.error ||
           'UNKNOWN') as ErrorCode
@@ -337,7 +404,11 @@ export default function ImageUploader() {
         setAppState('ERROR')
       }
     } catch (error: unknown) {
-      // AbortError means the user cancelled — don't show error state
+      if (analysisRequestIdRef.current !== requestId) {
+        return
+      }
+      clearAnalysisTimers()
+      // AbortError means user cancelled or timeout aborted fetch
       if (
         (error instanceof DOMException && error.name === 'AbortError') ||
         controller.signal.aborted
@@ -351,13 +422,14 @@ export default function ImageUploader() {
       }
       setAppState('ERROR')
     } finally {
-      isAnalyzingRef.current = false
+      if (analysisRequestIdRef.current === requestId) {
+        isAnalyzingRef.current = false
+      }
     }
-  }
+  }, [selectedFile, clearAnalysisTimers])
 
-  function handleRescan() {
-    isAnalyzingRef.current = false
-    abortControllerRef.current?.abort()
+  const handleRescan = useCallback(() => {
+    cancelOngoingAnalysis()
     if (galleryRef.current) galleryRef.current.value = ''
     revokeUrl()
     setSelectedFile(null)
@@ -365,19 +437,20 @@ export default function ImageUploader() {
     setClassificationResult(null)
     setErrorCode('UNKNOWN')
     setAppState('SCAN')
-  }
+  }, [cancelOngoingAnalysis, revokeUrl])
 
-  function handleRetry() {
-    isAnalyzingRef.current = false
-    abortControllerRef.current?.abort()
-    if (galleryRef.current) galleryRef.current.value = ''
-    revokeUrl()
-    setSelectedFile(null)
+  const handleRetry = useCallback(() => {
+    cancelOngoingAnalysis()
     setValidationError(null)
-    setClassificationResult(null)
     setErrorCode('UNKNOWN')
-    setAppState('SCAN')
-  }
+
+    if (selectedFile) {
+      // Re-trigger analysis directly with preserved image
+      handleAnalyze()
+    } else {
+      handleRescan()
+    }
+  }, [selectedFile, handleAnalyze, handleRescan, cancelOngoingAnalysis])
 
   // ── Derived state ─────────────────────────────────────────────────
 
@@ -426,7 +499,7 @@ export default function ImageUploader() {
           {appState === 'ANALYZING' && (
             <p
               aria-live="polite"
-              className="text-center text-ink-secondary mt-4"
+              className="text-center text-ink-secondary mt-4 text-pretty px-4"
               style={{
                 fontFamily: 'var(--font-serif-body)',
                 fontSize: '15px',
@@ -434,7 +507,9 @@ export default function ImageUploader() {
                 lineHeight: 'var(--leading-snug)',
               }}
             >
-              Đang phân tích...
+              {analysisStage === 'delayed'
+                ? 'Đang mất nhiều thời gian hơn dự kiến... Vui lòng đợi trong giây lát.'
+                : 'Đang phân tích...'}
             </p>
           )}
         </>
@@ -557,6 +632,7 @@ export default function ImageUploader() {
                 id="btn-close-camera"
                 type="button"
                 onClick={handleCloseCamera}
+                aria-label="Đóng camera"
                 className="mt-1"
                 style={{
                   fontFamily: 'var(--font-serif-body)',
@@ -572,7 +648,7 @@ export default function ImageUploader() {
                   cursor: 'pointer',
                 }}
               >
-                <X size={14} className="mr-1 inline" /> Đóng camera
+                <X size={14} className="mr-1 inline" aria-hidden="true" /> Đóng camera
               </button>
             </div>
           ) : (
@@ -603,6 +679,7 @@ export default function ImageUploader() {
                 id="btn-upload"
                 type="button"
                 onClick={() => galleryRef.current?.click()}
+                aria-label="Tải ảnh lên từ thư viện"
                 className="mt-3 underline"
                 style={{
                   fontFamily: 'var(--font-serif-body)',
@@ -618,7 +695,7 @@ export default function ImageUploader() {
                   cursor: 'pointer',
                 }}
               >
-                <ImageIcon size={14} className="mr-1.5 inline" />
+                <ImageIcon size={14} className="mr-1.5 inline" aria-hidden="true" />
                 hoặc tải lên từ thư viện
               </button>
             </>
@@ -633,6 +710,7 @@ export default function ImageUploader() {
             id="btn-analyze"
             type="button"
             onClick={handleAnalyze}
+            aria-label="Phân tích ảnh"
             className="w-full flex items-center justify-center gap-2 bg-forest hover:bg-forest-hover text-paper rounded-md transition-colors"
             style={{
               height: '56px',
@@ -649,6 +727,7 @@ export default function ImageUploader() {
             id="btn-reselect"
             type="button"
             onClick={handleReselect}
+            aria-label="Chụp lại hoặc chọn ảnh khác"
             className="mt-3"
             style={{
               fontFamily: 'var(--font-serif-body)',
@@ -702,7 +781,11 @@ export default function ImageUploader() {
 
       {/* ── ERROR screen ───────────────────────────────────── */}
       {appState === 'ERROR' && (
-        <ErrorState code={errorCode} onRetry={handleRetry} />
+        <ErrorState
+          code={errorCode}
+          onRetry={handleRetry}
+          onReset={handleRescan}
+        />
       )}
 
       {/* ── Hidden gallery file input ──────────────────────── */}

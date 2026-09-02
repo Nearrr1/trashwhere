@@ -91,10 +91,10 @@ export default function ClassificationResult({
             borderTopRightRadius: 'var(--radius-md)',
           }}
         >
-          <div className="flex items-center gap-3">
-            <CategoryIcon category={category} size={32} />
+          <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
+            <CategoryIcon category={category} size={32} className="shrink-0" />
             <h1
-              className="text-ink"
+              className="text-ink break-words min-w-0"
               style={{
                 fontFamily: 'var(--font-serif-display)',
                 fontSize: 'var(--text-2xl)',

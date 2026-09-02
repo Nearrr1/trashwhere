@@ -19,7 +19,7 @@ export default function DisposalCard({ disposalAction }: DisposalCardProps) {
       <SectionLabel id="disposal-label">CÁCH XỬ LÝ</SectionLabel>
 
       <p
-        className="mt-2 text-ink text-pretty"
+        className="mt-2 text-ink text-pretty break-words"
         style={{
           fontFamily: 'var(--font-serif-body)',
           fontSize: 'var(--text-base)',

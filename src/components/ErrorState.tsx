@@ -26,8 +26,10 @@ export type ErrorCode = ApiErrorCode | 'NETWORK'
 interface ErrorStateProps {
   /** Error code to determine which message to show */
   code?: ErrorCode
-  /** Called when user taps "Thử lại" */
+  /** Called when user taps "Thử lại" to retry with the existing image */
   onRetry: () => void
+  /** Optional callback when user taps "Chọn ảnh khác hoặc quét lại" to start over */
+  onReset?: () => void
 }
 
 /**
@@ -38,7 +40,7 @@ interface ErrorStateProps {
  *  - Icon: AlertTriangle 48px, 1px stroke, terra
  *  - Title: Playfair Display 700 22px ink
  *  - Body: Source Serif 4 400 15px ink-secondary, max 280px
- *  - CTA: primary button "Thử lại"
+ *  - CTA: primary button "Thử lại", secondary button "Chọn ảnh khác hoặc quét lại"
  *  - ARIA: role="alert" on the entire section
  *
  * Does not expose stack traces. Message is selected by error code.
@@ -46,6 +48,7 @@ interface ErrorStateProps {
 export default function ErrorState({
   code = 'UNKNOWN',
   onRetry,
+  onReset,
 }: ErrorStateProps) {
   const message = ERROR_MESSAGES[code] ?? ERROR_MESSAGES.UNKNOWN
 
@@ -101,6 +104,30 @@ export default function ErrorState({
       >
         Thử lại
       </button>
+
+      {onReset && (
+        <button
+          id="btn-error-reset"
+          type="button"
+          onClick={onReset}
+          className="mt-3"
+          style={{
+            fontFamily: 'var(--font-serif-body)',
+            fontSize: '14px',
+            color: 'var(--color-forest)',
+            minHeight: '44px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '100%',
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+          }}
+        >
+          Chọn ảnh khác hoặc quét lại
+        </button>
+      )}
     </div>
   )
 }

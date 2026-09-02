@@ -63,10 +63,25 @@ export async function startCameraStream(
         height: { ideal: 1080 },
       }
 
-  return await navigator.mediaDevices.getUserMedia({
-    video: videoConstraints,
-    audio: false,
-  })
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      video: videoConstraints,
+      audio: false,
+    })
+  } catch (err: unknown) {
+    // If overconstrained and no specific device was requested, fallback to basic unconstrained stream
+    if (
+      err instanceof DOMException &&
+      err.name === 'OverconstrainedError' &&
+      !deviceId
+    ) {
+      return await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false,
+      })
+    }
+    throw err
+  }
 }
 
 /**
