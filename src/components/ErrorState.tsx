@@ -3,8 +3,6 @@ import type { ApiErrorCode } from '@/types/classification'
 
 // ── Error message map ───────────────────────────────────────────────────
 
-// ── Error message map ───────────────────────────────────────────────────
-
 const ERROR_MESSAGES: Record<ApiErrorCode | 'NETWORK', string> = {
   AI_ERROR: 'Hệ thống AI đang gặp sự cố. Vui lòng thử lại sau.',
   VALIDATION_ERROR: 'Ảnh không hợp lệ. Thử chụp lại với ánh sáng tốt hơn.',

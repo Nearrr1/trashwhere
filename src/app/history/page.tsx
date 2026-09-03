@@ -37,12 +37,13 @@ export default function HistoryPage() {
         setIsAnonymous(true)
         return
       }
-      if (res.ok) {
-        const data = await res.json()
-        setIsAnonymous(false)
-        setScans(data.scans || [])
-        setStats(data.stats || null)
+      if (!res.ok) {
+        throw new Error('Không thể tải lịch sử')
       }
+      const data = await res.json()
+      setIsAnonymous(false)
+      setScans(data.scans || [])
+      setStats(data.stats || null)
     } catch (err: unknown) {
       setError(
         err instanceof Error
@@ -57,7 +58,7 @@ export default function HistoryPage() {
   useEffect(() => {
     let isMounted = true
 
-    async function loadData() {
+    async function loadHistory() {
       try {
         const res = await fetch('/api/history')
         if (!isMounted) return
@@ -67,11 +68,9 @@ export default function HistoryPage() {
           setLoading(false)
           return
         }
-
         if (!res.ok) {
           throw new Error('Không thể tải lịch sử')
         }
-
         const data = await res.json()
         if (!isMounted) return
 
@@ -90,7 +89,7 @@ export default function HistoryPage() {
       }
     }
 
-    loadData()
+    loadHistory()
     return () => {
       isMounted = false
     }
@@ -98,14 +97,17 @@ export default function HistoryPage() {
 
   async function handleDeleteScan(id?: string) {
     if (!id) return
+    // Optimistic update — remove immediately for responsive UX
+    setScans(prev => prev.filter(s => s._id !== id))
     try {
       const res = await fetch(`/api/history/${id}`, { method: 'DELETE' })
-      if (res.ok) {
-        setScans(prev => prev.filter(s => s._id !== id))
+      if (!res.ok) {
+        // Revert on failure
         refetchHistory()
       }
     } catch (err) {
       console.warn('Failed to delete scan:', err)
+      refetchHistory()
     }
   }
 
