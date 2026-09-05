@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { LogIn, LogOut, User, Clock, ChevronDown } from 'lucide-react'
 import Link from 'next/link'
+import { signIn, signOut } from 'next-auth/react'
 
 interface AuthUser {
   name?: string | null
@@ -51,12 +52,12 @@ export default function AuthButton() {
 
   if (!user) {
     return (
-      <Link
+      <button
+        type="button"
         id="btn-google-login"
-        href="/api/auth/signin/google"
-        prefetch={false}
+        onClick={() => signIn('google', { redirectTo: '/history' })}
         aria-label="Đăng nhập với Google"
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-paper transition-opacity hover:opacity-90 focus-visible:outline-paper"
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-paper transition-opacity hover:opacity-90 focus-visible:outline-paper cursor-pointer"
         style={{
           backgroundColor: 'rgba(255, 255, 255, 0.15)',
           border: '1px solid rgba(255, 255, 255, 0.25)',
@@ -65,7 +66,7 @@ export default function AuthButton() {
       >
         <LogIn size={14} aria-hidden="true" />
         <span>Đăng nhập</span>
-      </Link>
+      </button>
     )
   }
 
@@ -79,7 +80,7 @@ export default function AuthButton() {
         onClick={() => setMenuOpen(prev => !prev)}
         aria-expanded={menuOpen}
         aria-label={`Menu người dùng: ${displayName}`}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs text-paper focus-visible:outline-paper"
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs text-paper focus-visible:outline-paper cursor-pointer"
         style={{
           backgroundColor: 'rgba(255, 255, 255, 0.15)',
           border: '1px solid rgba(255, 255, 255, 0.25)',
@@ -127,16 +128,15 @@ export default function AuthButton() {
               Lịch sử quét
             </Link>
 
-            <form action="/api/auth/signout" method="POST" className="w-full">
-              <button
-                type="submit"
-                role="menuitem"
-                className="w-full flex items-center gap-2 px-3 py-2 text-terra hover:bg-paper-hover transition-colors text-left"
-              >
-                <LogOut size={15} aria-hidden="true" />
-                Đăng xuất
-              </button>
-            </form>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => signOut({ redirectTo: '/' })}
+              className="w-full flex items-center gap-2 px-3 py-2 text-terra hover:bg-paper-hover transition-colors text-left cursor-pointer"
+            >
+              <LogOut size={15} aria-hidden="true" />
+              Đăng xuất
+            </button>
           </div>
         </>
       )}

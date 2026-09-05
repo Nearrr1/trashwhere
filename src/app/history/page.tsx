@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import { signIn } from 'next-auth/react'
 import {
   Clock,
   LogIn,
@@ -245,16 +246,16 @@ export default function HistoryPage() {
               Đăng nhập với Google để lưu các lần phân loại rác và xem lại ở bất kỳ đâu.
             </p>
 
-            <Link
+            <button
+              type="button"
               id="btn-history-login"
-              href="/api/auth/signin/google"
-              prefetch={false}
-              className="w-full flex items-center justify-center gap-2 bg-forest hover:bg-forest-hover text-paper rounded-md transition-colors font-medium text-sm"
+              onClick={() => signIn('google', { redirectTo: '/history' })}
+              className="w-full flex items-center justify-center gap-2 bg-forest hover:bg-forest-hover text-paper rounded-md transition-colors font-medium text-sm cursor-pointer"
               style={{ height: '48px', fontFamily: 'var(--font-sans)' }}
             >
               <LogIn size={16} aria-hidden="true" />
               <span>Đăng nhập với Google</span>
-            </Link>
+            </button>
 
             <Link
               href="/"
