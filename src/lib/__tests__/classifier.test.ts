@@ -119,15 +119,14 @@ describe('classifier structured output validation', () => {
 })
 
 describe('classifier resilience configuration', () => {
-  it('uses gemini-2.5-flash as DEFAULT_MODEL', () => {
-    expect(DEFAULT_MODEL).toBe('gemini-2.5-flash')
+  it('uses gemini-3.5-flash-lite as DEFAULT_MODEL', () => {
+    expect(DEFAULT_MODEL).toBe('gemini-3.5-flash-lite')
   })
 
-  it('configures valid fallback models and excludes unstable gemini-3.5', () => {
-    expect(FALLBACK_MODELS).toContain('gemini-2.0-flash')
-    expect(FALLBACK_MODELS).toContain('gemini-2.5-flash-lite')
-    expect(FALLBACK_MODELS).toContain('gemini-flash-latest')
-    expect(FALLBACK_MODELS).not.toContain('gemini-3.5-flash')
+  it('configures valid fallback models', () => {
+    expect(FALLBACK_MODELS).toContain('gemini-3.1-flash-lite')
+    expect(FALLBACK_MODELS).toContain('gemini-3.6-flash')
+    expect(FALLBACK_MODELS).toContain('gemini-3.8-flash')
   })
 
   it('enforces SDK_TIMEOUT_MS < TIMEOUT_MS so SDK aborts before race fires', () => {
@@ -156,10 +155,18 @@ describe('isRetriableProviderError classification', () => {
     expect(isRetriableProviderError(new Error('Rate limit exceeded'))).toBe(true)
   })
 
+  it('identifies 404 / no longer available / not found as retriable', () => {
+    expect(
+      isRetriableProviderError(
+        new Error('This model models/gemini-2.0-flash is no longer available.')
+      )
+    ).toBe(true)
+    expect(isRetriableProviderError(new Error('404 Not Found'))).toBe(true)
+  })
+
   it('identifies permanent errors as non-retriable', () => {
     expect(isRetriableProviderError(new Error('API key not valid'))).toBe(false)
     expect(isRetriableProviderError(new Error('Invalid argument: image format'))).toBe(false)
-    expect(isRetriableProviderError(new Error('404 Not Found'))).toBe(false)
     expect(isRetriableProviderError('Not an error object')).toBe(false)
     expect(isRetriableProviderError(null)).toBe(false)
     expect(isRetriableProviderError(undefined)).toBe(false)

@@ -21,7 +21,7 @@ import type { ClassificationResult, WasteCategory } from '@/types/classification
  * gemini-3.5-flash (previous value) was confirmed to return HTTP 503
  * "high demand" / silent TCP hangs in production (see instrumentation report).
  */
-export const DEFAULT_MODEL = 'gemini-2.5-flash'
+export const DEFAULT_MODEL = 'gemini-3.5-flash-lite'
 
 /**
  * Application-level Promise.race timeout (safety net).
@@ -39,13 +39,13 @@ export const SDK_TIMEOUT_MS = 28_000
 
 /**
  * Ordered fallback model list.
- * All entries are confirmed present in @google/genai SDK v2.18.0 type definitions.
+ * All entries are confirmed active in Google Gemini API.
  * The primary model is prepended at runtime (from env or DEFAULT_MODEL).
  */
 export const FALLBACK_MODELS = [
-  'gemini-2.0-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-flash-latest',
+  'gemini-3.1-flash-lite',
+  'gemini-3.6-flash',
+  'gemini-3.8-flash',
 ] as const
 
 const VALID_CATEGORIES: ReadonlySet<WasteCategory> = new Set([
@@ -118,7 +118,10 @@ export function isRetriableProviderError(error: unknown): boolean {
     msg.includes('unavailable') ||
     msg.includes('high demand') ||
     msg.includes('temporary') ||
-    msg.includes('service unavailable')
+    msg.includes('service unavailable') ||
+    msg.includes('not found') ||
+    msg.includes('no longer available') ||
+    msg.includes('404')
   )
 }
 
