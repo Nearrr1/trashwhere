@@ -2,6 +2,12 @@ import { describe, it, expect } from 'vitest'
 import {
   parseAndValidateClassificationOutput,
   ClassifierError,
+  DEFAULT_MODEL,
+  FALLBACK_MODELS,
+  TIMEOUT_MS,
+  SDK_TIMEOUT_MS,
+  isRetriableProviderError,
+  classifyImage,
 } from '../classifier'
 
 describe('classifier structured output validation', () => {
@@ -109,5 +115,73 @@ describe('classifier structured output validation', () => {
     expect(() =>
       parseAndValidateClassificationOutput(emptyDispJson)
     ).toThrow(ClassifierError)
+  })
+})
+
+describe('classifier resilience configuration', () => {
+  it('uses gemini-2.5-flash as DEFAULT_MODEL', () => {
+    expect(DEFAULT_MODEL).toBe('gemini-2.5-flash')
+  })
+
+  it('configures valid fallback models and excludes unstable gemini-3.5', () => {
+    expect(FALLBACK_MODELS).toContain('gemini-2.0-flash')
+    expect(FALLBACK_MODELS).toContain('gemini-2.5-flash-lite')
+    expect(FALLBACK_MODELS).toContain('gemini-flash-latest')
+    expect(FALLBACK_MODELS).not.toContain('gemini-3.5-flash')
+  })
+
+  it('enforces SDK_TIMEOUT_MS < TIMEOUT_MS so SDK aborts before race fires', () => {
+    expect(SDK_TIMEOUT_MS).toBeLessThan(TIMEOUT_MS)
+    expect(SDK_TIMEOUT_MS).toBe(28_000)
+    expect(TIMEOUT_MS).toBe(30_000)
+  })
+})
+
+describe('isRetriableProviderError classification', () => {
+  it('identifies 503 / UNAVAILABLE / high demand as retriable', () => {
+    expect(
+      isRetriableProviderError(
+        new Error('503 Service Unavailable: This model is currently experiencing high demand.')
+      )
+    ).toBe(true)
+    expect(isRetriableProviderError(new Error('UNAVAILABLE: model overloaded'))).toBe(true)
+    expect(isRetriableProviderError(new Error('temporary unavailability'))).toBe(true)
+  })
+
+  it('identifies 429 / RESOURCE_EXHAUSTED / quota as retriable', () => {
+    expect(isRetriableProviderError(new Error('429 Too Many Requests'))).toBe(true)
+    expect(
+      isRetriableProviderError(new Error('RESOURCE_EXHAUSTED: quota exceeded'))
+    ).toBe(true)
+    expect(isRetriableProviderError(new Error('Rate limit exceeded'))).toBe(true)
+  })
+
+  it('identifies permanent errors as non-retriable', () => {
+    expect(isRetriableProviderError(new Error('API key not valid'))).toBe(false)
+    expect(isRetriableProviderError(new Error('Invalid argument: image format'))).toBe(false)
+    expect(isRetriableProviderError(new Error('404 Not Found'))).toBe(false)
+    expect(isRetriableProviderError('Not an error object')).toBe(false)
+    expect(isRetriableProviderError(null)).toBe(false)
+    expect(isRetriableProviderError(undefined)).toBe(false)
+  })
+})
+
+describe('classifyImage pre-invocation validation', () => {
+  it('throws MISSING_API_KEY if GEMINI_API_KEY is not defined', async () => {
+    const originalKey = process.env.GEMINI_API_KEY
+    try {
+      delete process.env.GEMINI_API_KEY
+      const fakeFile = new File(['mock content'], 'test.jpg', {
+        type: 'image/jpeg',
+      })
+      await expect(classifyImage(fakeFile)).rejects.toThrow(ClassifierError)
+      await expect(classifyImage(fakeFile)).rejects.toMatchObject({
+        code: 'MISSING_API_KEY',
+      })
+    } finally {
+      if (originalKey !== undefined) {
+        process.env.GEMINI_API_KEY = originalKey
+      }
+    }
   })
 })

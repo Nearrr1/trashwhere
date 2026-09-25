@@ -3,6 +3,9 @@ import { classifyImage, ClassifierError } from '@/lib/classifier'
 import { checkRateLimit, getClientIp } from '@/lib/rate-limiter'
 import type { ApiError, ClassificationResult } from '@/types/classification'
 
+/** Maximum execution duration for this route handler (seconds) on Vercel */
+export const maxDuration = 60
+
 /** Allowed MIME types for uploaded waste images */
 export const ACCEPTED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp'])
 

@@ -131,7 +131,7 @@ async function run() {
     version: 'v2',
     runDate: new Date().toISOString().split('T')[0],
     provider: 'Google Gemini',
-    model: process.env.GEMINI_MODEL || 'gemini-3.5-flash',
+    model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
     threshold: 0.60,
     totalCases: cases.length,
     results,
