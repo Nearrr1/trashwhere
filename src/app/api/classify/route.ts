@@ -94,6 +94,16 @@ export async function POST(
     )
   }
 
+  // ── Instrumentation: route entry ──────────────────────────────────
+  console.log(
+    JSON.stringify({
+      event: 'CLASSIFY_ROUTE_START',
+      contentLength: request.headers.get('content-length'),
+      contentType: request.headers.get('content-type')?.split(';')[0],
+      ts: Date.now(),
+    })
+  )
+
   // Common rate limit headers to attach to responses
   const rateLimitHeaders = {
     'X-RateLimit-Limit': String(rateLimit.limit),
@@ -195,6 +205,14 @@ export async function POST(
     })
   } catch (error: unknown) {
     if (error instanceof ClassifierError) {
+      // ── Instrumentation: classifier threw a typed error ───────────────
+      console.log(
+        JSON.stringify({
+          event: 'CLASSIFY_ROUTE_CLASSIFIER_ERROR',
+          errorCode: error.code,
+          ts: Date.now(),
+        })
+      )
       if (error.code === 'TIMEOUT') {
         return NextResponse.json<ApiError>(
           {

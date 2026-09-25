@@ -172,6 +172,20 @@ export function parseAndValidateClassificationOutput(
 export async function classifyImage(file: File): Promise<ClassificationResult> {
   const apiKey =
     process.env.GEMINI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim()
+
+  // ── Instrumentation A: function entry ────────────────────────────────
+  const primaryModel = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL
+  console.log(
+    JSON.stringify({
+      event: 'CLASSIFY_START',
+      mimeType: file.type || 'image/jpeg',
+      sizeBytes: file.size,
+      configuredModel: primaryModel,
+      hasApiKey: !!apiKey,
+      ts: Date.now(),
+    })
+  )
+
   if (!apiKey) {
     throw new ClassifierError(
       'MISSING_API_KEY',
@@ -196,7 +210,6 @@ export async function classifyImage(file: File): Promise<ClassificationResult> {
   const ai = new GoogleGenAI({ apiKey })
 
   // 3. Request structured classification with timeout protection
-  const primaryModel = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL
   const candidateModels = Array.from(
     new Set([
       primaryModel,
@@ -212,12 +225,35 @@ export async function classifyImage(file: File): Promise<ClassificationResult> {
 
   for (const model of candidateModels) {
     try {
+      // ── Instrumentation B: immediately before the API call ──────────────
+      const callStart = Date.now()
+      console.log(
+        JSON.stringify({
+          event: 'GEMINI_CALL_START',
+          model,
+          sizeBytes: file.size,
+          timeoutMs: TIMEOUT_MS,
+          ts: callStart,
+        })
+      )
+
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(
-          () =>
+          () => {
+            // ── Instrumentation: timeout fired ────────────────────────────
+            console.log(
+              JSON.stringify({
+                event: 'GEMINI_TIMEOUT',
+                model,
+                elapsedMs: Date.now() - callStart,
+                timeoutMs: TIMEOUT_MS,
+                ts: Date.now(),
+              })
+            )
             reject(
               new ClassifierError('TIMEOUT', 'Classification request timed out.')
-            ),
+            )
+          },
           TIMEOUT_MS
         )
       )
@@ -287,16 +323,62 @@ export async function classifyImage(file: File): Promise<ClassificationResult> {
       })
 
       const response = await Promise.race([apiCallPromise, timeoutPromise])
+
+      // ── Instrumentation C: API call returned successfully ───────────────
+      console.log(
+        JSON.stringify({
+          event: 'GEMINI_CALL_SUCCESS',
+          model,
+          elapsedMs: Date.now() - callStart,
+          ts: Date.now(),
+        })
+      )
+
       responseText = response.text ?? null
       if (responseText) break
     } catch (error: unknown) {
       lastError = error
+
+      // ── Instrumentation D: catch block — classify the error type ─────────
+      const isClassifierTimeout =
+        error instanceof ClassifierError && error.code === 'TIMEOUT'
       const isQuotaError =
         error instanceof Error &&
         (error.message.includes('429') ||
           error.message.includes('RESOURCE_EXHAUSTED') ||
           error.message.includes('quota') ||
           error.message.includes('Rate limit'))
+      const isNetworkError =
+        error instanceof Error &&
+        (error.name === 'AbortError' ||
+          error.message.toLowerCase().includes('timeout') ||
+          error.message.toLowerCase().includes('network') ||
+          error.message.toLowerCase().includes('fetch'))
+
+      const errorClassification = isClassifierTimeout
+        ? 'CLASSIFIER_TIMEOUT'
+        : isQuotaError
+          ? 'QUOTA_ERROR'
+          : isNetworkError
+            ? 'NETWORK_ERROR'
+            : 'PROVIDER_ERROR'
+
+      // Sanitize message: truncate at 200 chars, never log key material
+      const rawMsg =
+        error instanceof Error ? error.message : String(error)
+      const sanitizedMsg = rawMsg.slice(0, 200)
+
+      console.log(
+        JSON.stringify({
+          event: 'GEMINI_CALL_ERROR',
+          model,
+          errorName:
+            error instanceof Error ? error.name : typeof error,
+          errorClassification,
+          sanitizedMessage: sanitizedMsg,
+          ts: Date.now(),
+        })
+      )
 
       if (isQuotaError && model !== candidateModels[candidateModels.length - 1]) {
         // Try fallback model
